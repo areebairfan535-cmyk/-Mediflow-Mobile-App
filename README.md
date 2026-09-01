@@ -30,8 +30,8 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**525/525 end-to-end assertions pass** (53 foundation + 55 clinical +
-94 billing + 90 patient + 82 insurance + 58 AI + 40 subscription +
+**562/562 end-to-end assertions pass** (78 foundation + 55 clinical +
+94 billing + 90 patient + 82 insurance + 58 AI + 52 subscription +
 53 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
@@ -52,21 +52,21 @@ Captured from the running system against the seeded demo clinic.
 
 | My day | Consultation | Billing |
 |:---:|:---:|:---:|
-| <img src="docs/screenshots/clinic-my-day.png" alt="Today's appointment list with waiting, completed, billed and outstanding tiles" /> | <img src="docs/screenshots/clinic-consultation.png" alt="Consultation screen with an allergy banner, complaint and examination, vitals and diagnosis" /> | <img src="docs/screenshots/clinic-billing.png" alt="Invoice list with draft, issued and partially paid statuses in PKR" /> |
+| <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/clinic-my-day.png" width="260" alt="Today's appointment list with waiting, completed, billed and outstanding tiles" /> | <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/clinic-consultation.png" width="260" alt="Consultation screen with an allergy banner, complaint and examination, vitals and diagnosis" /> | <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/clinic-billing.png" width="260" alt="Invoice list with draft, issued and partially paid statuses in PKR" /> |
 | Waiting, completed, billed and outstanding at a glance — and one tap into the visit. | Allergies surface before anything else. Complaint → diagnosis → prescription → labs → invoice, in order. | Invoices, payments and balances, with the money never held as a float (§6). |
 
 ### Admin — organisation and platform (§21, §22)
 
 | Roles & permissions | Plan & usage | Audit log |
 |:---:|:---:|:---:|
-| <img src="docs/screenshots/admin-roles.png" alt="Ten roles listed with their slugs and permission counts" /> | <img src="docs/screenshots/admin-plan-usage.png" alt="Subscription plan with usage against doctor, patient and storage limits" /> | <img src="docs/screenshots/admin-audit-log.png" alt="Audit log of access to patient records and financial data" /> |
+| <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/admin-roles.png" width="260" alt="Ten roles listed with their slugs and permission counts" /> | <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/admin-plan-usage.png" width="260" alt="Subscription plan with usage against doctor, patient and storage limits" /> | <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/admin-audit-log.png" width="260" alt="Audit log of access to patient records and financial data" /> |
 | 10 roles over 51 permissions. A route declares the slug it needs; the role holds it or the request is refused with 403 (§11). | Limits that actually refuse writes, not just decorate a settings page (§22). | Who touched which record, and when (§16). |
 
 ### Patient app (§3)
 
 | Home | Visits | Bills |
 |:---:|:---:|:---:|
-| <img src="docs/screenshots/patient-home.png" alt="Patient home showing allergies, outstanding balance and a health summary" /> | <img src="docs/screenshots/patient-visits.png" alt="Patient visit history with dates and doctors" /> | <img src="docs/screenshots/patient-bills.png" alt="Patient invoice list with amounts and payment status" /> |
+| <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/patient-home.png" width="200" alt="Patient home showing allergies, outstanding balance and a health summary" /> | <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/patient-visits.png" width="200" alt="Patient visit history with dates and doctors" /> | <img src="https://raw.githubusercontent.com/areebairfan535-cmyk/-Mediflow-Mobile-App/main/docs/screenshots/patient-bills.png" width="200" alt="Patient invoice list with amounts and payment status" /> |
 | Allergies, balance and health summary — scoped to identity, not permission. | Every visit, with what was diagnosed and prescribed. | What is owed, and what has been paid. |
 
 ---
@@ -110,13 +110,13 @@ C:/xampp/php/php.exe database/seed_insurance.php  # insurers and patient policie
 C:/xampp/php/php.exe -S 127.0.0.1:8000 -t public
 
 # 5. Verify
-bash database/smoke-test.sh              # 53 assertions
+bash database/smoke-test.sh              # 78 assertions
 bash database/smoke-test-clinical.sh     # 55 assertions
 bash database/smoke-test-billing.sh      # 94 assertions
 bash database/smoke-test-patient.sh      # 90 assertions
 bash database/smoke-test-insurance.sh    # 82 assertions
 bash database/smoke-test-ai.sh           # 58 assertions
-bash database/smoke-test-subscription.sh # 40 assertions
+bash database/smoke-test-subscription.sh # 52 assertions
 bash database/smoke-test-platform.sh     # 53 assertions
 ```
 
