@@ -49,6 +49,20 @@ so they can be re-run in any order without re-seeding.
 Requires XAMPP (PHP 8.2 + MariaDB). No Composer, no npm — §24 specifies
 Core PHP.
 
+> ⚠️ **Use XAMPP's PHP, not whatever `php` resolves to on your PATH.**
+> Every command below spells out `C:/xampp/php/php.exe` for a reason: the API
+> needs the **`mbstring`** extension, which XAMPP enables and many standalone
+> PHP builds do not. Start the server with the wrong PHP and every request
+> returns `500 — Call to undefined function mb_strlen()`. That looks like
+> broken code, but it is only a missing extension.
+>
+> Confirm before you start:
+>
+> ```bash
+> C:/xampp/php/php.exe -v          # expect PHP 8.2.x
+> C:/xampp/php/php.exe -m | grep mbstring   # must print: mbstring
+> ```
+
 ```bash
 # 1. Start MariaDB from the XAMPP Control Panel, then:
 C:/xampp/mysql/bin/mysql.exe -u root \
