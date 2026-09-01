@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "MediFlow",
+    "slug": "mediflow-patient",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "mediflow",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "test.mediflow.patient",
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-asset"
+    ]
+  }
+}

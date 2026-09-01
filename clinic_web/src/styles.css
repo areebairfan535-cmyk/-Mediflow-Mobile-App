@@ -1,0 +1,733 @@
+/* MediFlow Admin — design tokens and layout.
+   One stylesheet, no framework: the console is small and its look should not
+   depend on a dependency that later has to be upgraded. */
+
+:root {
+  --bg: #f6f8fb;
+  --surface: #ffffff;
+  --sidebar: #10243e;
+  --sidebar-hover: #1b3557;
+  --border: #e3e8ef;
+  --ink: #0f1c2e;
+  --body: #445068;
+  --muted: #7c8798;
+  --accent: #0d7ea8;
+  --accent-dark: #0a6486;
+  --accent-soft: #e6f3f9;
+  --ok: #0f8a5f;
+  --ok-soft: #e4f6ee;
+  --warn: #b46a00;
+  --warn-soft: #fdf3e2;
+  --danger: #c1362f;
+  --danger-soft: #fdecea;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(16, 36, 62, 0.06), 0 4px 12px rgba(16, 36, 62, 0.05);
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+h1 { font-size: 22px; }
+h2 { font-size: 16px; }
+
+a { color: var(--accent); }
+
+/* ---------- Login ---------- */
+
+/* ---------------------------------------------------------------
+   Sign-in — two panes on a desktop, one column on a phone.
+
+   The left pane is not decoration: staff have three MediFlow apps and land
+   in the wrong one otherwise, so it says which workspace this is before
+   anyone types a password.
+   --------------------------------------------------------------- */
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+}
+
+.auth-aside {
+  background: linear-gradient(155deg, #0b1f36 0%, #0a6486 62%, #0d7ea8 100%);
+  color: #fff;
+  padding: 48px 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.auth-aside .brand-name { color: #fff; }
+.auth-aside .brand-mark { background: #fff; color: var(--accent-dark); }
+
+.auth-headline {
+  font-size: 31px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin: 30px 0 12px;
+  font-weight: 750;
+}
+
+.auth-lede {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 30em;
+  margin: 0 0 26px;
+}
+
+.auth-points { list-style: none; margin: 0; padding: 0; max-width: 30em; }
+.auth-points li {
+  padding: 9px 0 9px 20px;
+  position: relative;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.13);
+}
+.auth-points li:before {
+  content: "";
+  position: absolute;
+  left: 0; top: 17px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+}
+.auth-points b { color: #fff; font-weight: 700; }
+
+.auth-foot {
+  margin: 32px 0 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.55);
+  max-width: 30em;
+}
+
+.auth-main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 44px 40px;
+  background: var(--bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 30px 28px;
+  box-shadow: var(--shadow);
+}
+
+.auth-card h2 {
+  margin: 0 0 2px;
+  font-size: 21px;
+  letter-spacing: -0.02em;
+}
+
+/* Typing a password blind is how people lock themselves out. */
+.reveal-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent-dark);
+  padding: 4px 6px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.brand-name { font-size: 19px; font-weight: 680; letter-spacing: -0.02em; }
+
+.demo-accounts {
+  width: 100%;
+  max-width: 380px;
+  margin: 22px auto 0;
+}
+
+.demo-accounts p {
+  margin: 0 0 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.demo-accounts code {
+  font-family: var(--mono);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--body);
+}
+
+.demo-btn {
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin-bottom: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--body);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.demo-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.demo-btn strong { color: var(--ink); font-weight: 650; }
+.demo-btn span {
+  float: right;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-dark);
+}
+.demo-btn em {
+  display: block;
+  font-style: normal;
+  color: var(--muted);
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+/* One column on a phone, and the sales pitch goes away — someone signing in
+   on a handset already knows which app they opened. */
+@media (max-width: 860px) {
+  .auth-shell { grid-template-columns: 1fr; }
+  .auth-aside { padding: 30px 24px; }
+  .auth-headline { font-size: 24px; margin-top: 18px; }
+  .auth-points, .auth-foot { display: none; }
+  .auth-main { padding: 28px 20px 44px; }
+}
+/* ---------- Form ---------- */
+
+.field { margin-bottom: 16px; }
+
+.field label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--body);
+  margin-bottom: 6px;
+}
+
+input, select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.btn {
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.btn:hover:not(:disabled) { background: var(--accent-dark); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-block { width: 100%; }
+
+.btn-secondary {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--body);
+}
+.btn-secondary:hover:not(:disabled) { background: var(--bg); border-color: var(--muted); }
+
+.btn-sm { padding: 5px 10px; font-size: 12.5px; }
+
+.alert {
+  padding: 10px 13px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid rgba(193, 54, 47, 0.18);
+}
+
+.alert-ok { background: var(--ok-soft); color: var(--ok); border-color: rgba(15, 138, 95, 0.2); }
+
+/* Neither an error nor a success: "here is what happens next". Used by the
+   reset flow to say where the code went. */
+.notice {
+  padding: 10px 13px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 16px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  border: 1px solid rgba(13, 126, 168, 0.18);
+}
+
+/* ---------- Shell ---------- */
+
+.shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 234px;
+  flex-shrink: 0;
+  background: var(--sidebar);
+  color: #cfdcec;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+}
+
+.sidebar .brand { margin-bottom: 28px; padding: 0 8px; }
+.sidebar .brand-name { color: #fff; }
+
+.nav-section {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #6b839f;
+  font-weight: 700;
+  padding: 0 10px;
+  margin: 18px 0 7px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  color: #cfdcec;
+  font-family: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.nav-item:hover { background: var(--sidebar-hover); color: #fff; }
+.nav-item.active { background: var(--accent); color: #fff; font-weight: 600; }
+.nav-icon { width: 17px; text-align: center; opacity: 0.9; }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+/* A button now: it opens Account & security, which is where people look
+   for their own password and signed-in devices. */
+.user-chip {
+  padding: 8px 10px 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.user-chip:hover { background: var(--sidebar-hover); }
+.user-chip .name { color: #fff; font-weight: 600; font-size: 13px; }
+.user-chip .meta { color: #7f97b4; font-size: 11.5px; margin-top: 2px; }
+
+/* ---------- Main ---------- */
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  height: 58px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 26px;
+  gap: 16px;
+}
+
+.topbar .crumb { color: var(--muted); font-size: 13px; }
+.topbar .crumb strong { color: var(--ink); font-weight: 600; }
+
+.content { padding: 26px; flex: 1; }
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.page-head p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+
+/* ---------- Cards & stats ---------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.card-head {
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-body { padding: 18px; }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+}
+
+.stat .label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.stat .value {
+  font-size: 27px;
+  font-weight: 680;
+  margin-top: 7px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat .value.money { font-size: 22px; }
+.stat .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* ---------- Table ---------- */
+
+.table-wrap { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+
+th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 10px 18px;
+  background: #fafbfd;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--body);
+  vertical-align: middle;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: #fbfcfe; }
+
+td.strong { color: var(--ink); font-weight: 600; }
+td.mono, .mono { font-family: var(--mono); font-size: 12.5px; }
+
+/* ---------- Badges ---------- */
+
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-ok { background: var(--ok-soft); color: var(--ok); }
+.badge-warn { background: var(--warn-soft); color: var(--warn); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-neutral { background: var(--bg); color: var(--body); border: 1px solid var(--border); }
+.badge-accent { background: var(--accent-soft); color: var(--accent-dark); }
+
+.perm-chip {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 7px;
+  margin: 2px 3px 2px 0;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--body);
+}
+
+/* ---------- Misc ---------- */
+
+.empty { padding: 44px 20px; text-align: center; color: var(--muted); }
+.empty .big { font-size: 30px; margin-bottom: 8px; opacity: 0.5; }
+
+.spinner {
+  width: 17px;
+  height: 17px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading { padding: 44px; text-align: center; color: var(--muted); }
+
+.filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.filters .field { margin-bottom: 0; min-width: 145px; }
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+@media (max-width: 860px) {
+  .sidebar { width: 66px; padding: 16px 8px; }
+  .sidebar .brand-name, .nav-item span:not(.nav-icon), .nav-section, .user-chip { display: none; }
+  .nav-item { justify-content: center; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .content { padding: 16px; }
+}
+
+/* ===================== Clinic-specific ===================== */
+
+/* Allergy banner — deliberately the loudest thing on the patient header.
+   Prescribing against a recorded allergy is the error this app must prevent. */
+.allergy-banner {
+  background: var(--danger-soft);
+  border: 1px solid rgba(193, 54, 47, 0.28);
+  border-left: 4px solid var(--danger);
+  border-radius: 8px;
+  padding: 11px 14px;
+  margin-bottom: 14px;
+}
+.allergy-banner .title {
+  color: var(--danger);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 5px;
+}
+.allergy-banner .item { color: var(--ink); font-size: 13.5px; }
+.allergy-banner .item + .item { margin-top: 3px; }
+
+.patient-header {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+}
+.avatar {
+  width: 46px; height: 46px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-dark);
+  display: grid; place-items: center; font-weight: 700; font-size: 17px;
+  flex-shrink: 0;
+}
+.patient-header .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.patient-header .spacer { margin-left: auto; }
+
+.vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+/* Day schedule */
+.slot-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 18px; border-bottom: 1px solid var(--border);
+}
+.slot-row:last-child { border-bottom: none; }
+.slot-row:hover { background: #fbfcfe; }
+.slot-time {
+  font-family: var(--mono); font-weight: 600; color: var(--ink);
+  width: 62px; flex-shrink: 0; font-size: 13.5px;
+}
+.slot-main { flex: 1; min-width: 0; }
+.slot-main .who { font-weight: 600; color: var(--ink); }
+.slot-main .why { color: var(--muted); font-size: 12.5px; margin-top: 1px; }
+.slot-actions { display: flex; gap: 7px; flex-shrink: 0; }
+
+/* Free-slot picker */
+.slot-picker { display: flex; flex-wrap: wrap; gap: 7px; }
+.slot-chip {
+  padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface); font-family: var(--mono); font-size: 13px;
+  cursor: pointer; color: var(--body); transition: all 0.12s;
+}
+.slot-chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+.slot-chip.selected {
+  background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+}
+
+/* Consultation step blocks */
+.step { margin-bottom: 16px; }
+.step-title {
+  display: flex; align-items: center; gap: 9px;
+  font-weight: 650; color: var(--ink); margin-bottom: 9px; font-size: 14.5px;
+}
+.step-num {
+  width: 21px; height: 21px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center; font-size: 11.5px; font-weight: 700;
+}
+
+.line-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 7px; background: var(--surface);
+}
+.line-item .body { flex: 1; min-width: 0; }
+.line-item .body .title { font-weight: 600; color: var(--ink); }
+.line-item .body .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+
+textarea {
+  width: 100%; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  font-family: inherit; font-size: 14px; color: var(--ink);
+  background: var(--surface); resize: vertical; min-height: 74px;
+}
+textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.autocomplete { position: relative; }
+.autocomplete-list {
+  position: absolute; top: calc(100% + 3px); left: 0; right: 0; z-index: 20;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(16,36,62,0.13);
+  max-height: 230px; overflow-y: auto;
+}
+.autocomplete-item {
+  padding: 9px 12px; cursor: pointer; border-bottom: 1px solid var(--border);
+}
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item:hover { background: var(--accent-soft); }
+.autocomplete-item .name { font-weight: 600; color: var(--ink); font-size: 13.5px; }
+.autocomplete-item .detail { color: var(--muted); font-size: 12px; margin-top: 1px; }
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(10, 22, 38, 0.45);
+  display: grid; place-items: center; padding: 20px; z-index: 100;
+}
+.modal {
+  background: var(--surface); border-radius: 12px; width: 100%; max-width: 620px;
+  max-height: 88vh; overflow-y: auto; box-shadow: 0 24px 60px rgba(6,20,38,0.32);
+}
+.modal-head {
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.modal-body { padding: 20px; }
+.modal-foot {
+  padding: 14px 20px; border-top: 1px solid var(--border);
+  display: flex; gap: 9px; justify-content: flex-end;
+  position: sticky; bottom: 0; background: var(--surface);
+}
+
+.btn-danger { background: var(--danger); }
+.btn-danger:hover:not(:disabled) { background: #a12b25; }
+.btn-ok { background: var(--ok); }
+.btn-ok:hover:not(:disabled) { background: #0c7350; }
+
+.icon-btn {
+  border: none; background: none; cursor: pointer; color: var(--muted);
+  font-size: 15px; padding: 3px 6px; border-radius: 5px; line-height: 1;
+}
+.icon-btn:hover { background: var(--danger-soft); color: var(--danger); }
+
+.hint { color: var(--muted); font-size: 12.5px; }
+.mt { margin-top: 14px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 700px) { .grid-3 { grid-template-columns: 1fr; } }

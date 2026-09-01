@@ -1,0 +1,88 @@
+MediFlow
+========
+
+A clinic management system: three applications sharing one server.
+
+  clinic_web     the clinic app  - doctors, reception, billing
+  admin_web      the admin console - the clinic's owner, and platform staff
+  patient_app    the patient's phone app
+  backend        the API and database all three talk to
+
+This is the source code, not an installer, so there is nothing to
+double-click yet. One command builds it, and then it runs.
+
+
+BEFORE YOU START
+----------------
+
+Two free installs, if they are not on the machine already:
+
+  XAMPP      https://www.apachefriends.org      (gives PHP and MariaDB)
+  Node.js    https://nodejs.org
+
+Then open the XAMPP Control Panel and press Start next to MySQL.
+Apache is not needed - PHP serves the API itself.
+
+
+SET IT UP
+---------
+
+Double-click:
+
+  setup.bat
+
+It creates the database, builds the 43 tables, fills them with a demo
+clinic - patients, appointments, prescriptions, bills - and installs
+what the three applications need. A few minutes, mostly downloads.
+
+It is safe to run again if anything is interrupted.
+
+
+RUN IT
+------
+
+Three terminals, each left open. In this folder, right-click and choose
+"Open in Terminal", then:
+
+  cd backend
+  C:\xampp\php\php.exe -S 0.0.0.0:8000 -t public
+
+  cd clinic_web
+  npm run dev            then open  http://localhost:5174
+
+  cd admin_web
+  npm run dev            then open  http://localhost:5173
+
+For the phone app, a fourth terminal:
+
+  cd patient_app
+  npx expo start         then scan the QR code with Expo Go
+
+
+SIGNING IN
+----------
+
+The password for every account below is:  Password123
+
+  doctor@clinic.test      the clinic app, as a doctor
+  reception@clinic.test   the clinic app, as the front desk
+  billing@clinic.test     the clinic app, as billing
+  owner@clinic.test       the clinic app, or the admin console
+  admin@mediflow.test     the admin console, as platform staff
+  patient@demo.test       the patient app
+
+Worth doing: sign in as the doctor, then as the receptionist. The same
+screens show different things, because permissions are checked on the
+server rather than hidden in the interface.
+
+
+MORE
+----
+
+  SETUP.md    the same instructions with more detail, and what to do
+              when something does not work
+  README.md   how the system is built: architecture, database design,
+              the API, security, and the test suites
+
+There are eight test suites covering the API end to end - 563 checks.
+SETUP.md says how to run them.
