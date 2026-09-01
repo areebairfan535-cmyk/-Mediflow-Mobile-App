@@ -44,6 +44,33 @@ so they can be re-run in any order without re-seeding.
 
 ---
 
+## Screenshots
+
+Captured from the running system against the seeded demo clinic.
+
+### Clinic — the doctor's workspace (§4)
+
+| My day | Consultation | Billing |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/clinic-my-day.png" alt="Today's appointment list with waiting, completed, billed and outstanding tiles" /> | <img src="docs/screenshots/clinic-consultation.png" alt="Consultation screen with an allergy banner, complaint and examination, vitals and diagnosis" /> | <img src="docs/screenshots/clinic-billing.png" alt="Invoice list with draft, issued and partially paid statuses in PKR" /> |
+| Waiting, completed, billed and outstanding at a glance — and one tap into the visit. | Allergies surface before anything else. Complaint → diagnosis → prescription → labs → invoice, in order. | Invoices, payments and balances, with the money never held as a float (§6). |
+
+### Admin — organisation and platform (§21, §22)
+
+| Roles & permissions | Plan & usage | Audit log |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/admin-roles.png" alt="Ten roles listed with their slugs and permission counts" /> | <img src="docs/screenshots/admin-plan-usage.png" alt="Subscription plan with usage against doctor, patient and storage limits" /> | <img src="docs/screenshots/admin-audit-log.png" alt="Audit log of access to patient records and financial data" /> |
+| 10 roles over 51 permissions. A route declares the slug it needs; the role holds it or the request is refused with 403 (§11). | Limits that actually refuse writes, not just decorate a settings page (§22). | Who touched which record, and when (§16). |
+
+### Patient app (§3)
+
+| Home | Visits | Bills |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/patient-home.png" alt="Patient home showing allergies, outstanding balance and a health summary" /> | <img src="docs/screenshots/patient-visits.png" alt="Patient visit history with dates and doctors" /> | <img src="docs/screenshots/patient-bills.png" alt="Patient invoice list with amounts and payment status" /> |
+| Allergies, balance and health summary — scoped to identity, not permission. | Every visit, with what was diagnosed and prescribed. | What is owed, and what has been paid. |
+
+---
+
 ## Quick start
 
 Requires XAMPP (PHP 8.2 + MariaDB). No Composer, no npm — §24 specifies
