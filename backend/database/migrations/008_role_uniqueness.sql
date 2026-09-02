@@ -40,5 +40,5 @@ DELETE duplicate
 --    with each other exactly as clinic-scoped roles already do.
 ALTER TABLE roles
     ADD COLUMN org_scope BIGINT UNSIGNED
-        GENERATED ALWAYS AS (IFNULL(organization_id, 0)) STORED,
+        GENERATED ALWAYS AS (IFNULL(organization_id, 0)) VIRTUAL,
     ADD UNIQUE KEY uniq_role_scope_key (org_scope, slug);
