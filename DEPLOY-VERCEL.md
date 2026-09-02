@@ -74,7 +74,7 @@ machine.
 
 1. Go to [vercel.com/new](https://vercel.com/new) and import this repository.
 2. **Root Directory:** `backend`
-3. **Project Name:** something you will recognise, e.g. `mediflow-api`
+3. **Project Name:** something you will recognise, e.g. `mediflow-api` (this deployment used `mediflow-mobile-app`)
 4. Under **Environment Variables**, add:
 
    | Name | Value |
@@ -93,7 +93,7 @@ machine.
 Check it worked:
 
 ```
-https://mediflow-api.vercel.app/api/v1/health
+https://mediflow-mobile-app.vercel.app/api/v1/health
 ```
 
 You should get `{"data":{"status":"ok","database":"connected",...}}`.
