@@ -7,8 +7,14 @@ declare(strict_types=1);
 
 if (!function_exists('env')) {
     /**
-     * Read a value from the parsed .env, falling back to $default.
-     * Values are stored in $GLOBALS['__env'] by load_env().
+     * Read a value from the parsed .env, then from the real process
+     * environment, falling back to $default.
+     *
+     * The file is checked first so a developer's local .env still wins on
+     * their own machine. The process environment is what a hosting platform
+     * actually gives you — there is no .env file to deploy — so without that
+     * second lookup the app silently falls back to its defaults in production
+     * and tries to reach a database on 127.0.0.1.
      */
     function env(string $key, ?string $default = null): ?string
     {
@@ -16,6 +22,18 @@ if (!function_exists('env')) {
         if (array_key_exists($key, $vars) && $vars[$key] !== '') {
             return $vars[$key];
         }
+
+        foreach ([$_ENV, $_SERVER] as $source) {
+            if (isset($source[$key]) && $source[$key] !== '') {
+                return (string) $source[$key];
+            }
+        }
+
+        $fromGetenv = getenv($key);
+        if ($fromGetenv !== false && $fromGetenv !== '') {
+            return $fromGetenv;
+        }
+
         return $default;
     }
 }
