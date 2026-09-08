@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\PasswordReset;
 
 /**
  * password_resets. Like auth_tokens, it holds hashes only — the six digits
@@ -15,15 +16,7 @@ use App\Core\Repository;
  */
 final class PasswordResetRepository extends Repository
 {
-    protected string $table        = 'password_resets';
-    protected bool   $tenantScoped = false;
-
-    protected array $fillable = [
-        'user_id', 'code_hash', 'expires_at', 'used_at', 'attempts',
-        'ip_address', 'created_at', 'updated_at',
-    ];
-
-    protected array $hidden = ['code_hash'];
+    protected string $model = PasswordReset::class;
 
     /**
      * The live request for this user, if there is one.

@@ -113,7 +113,7 @@ final class PatientService extends Service
 
     public function removeAllergy(int $patientId, int $allergyId): void
     {
-        if (!$this->clinical()->deactivateAllergy($patientId, $allergyId)) {
+        if (!$this->clinical()->deactivateAllergy($patientId, $allergyId, $this->actorId)) {
             throw new NotFoundException('Allergy not found');
         }
     }
@@ -134,7 +134,7 @@ final class PatientService extends Service
 
     public function setConditionStatus(int $patientId, int $conditionId, string $status): void
     {
-        if (!$this->clinical()->setConditionStatus($patientId, $conditionId, $status)) {
+        if (!$this->clinical()->setConditionStatus($patientId, $conditionId, $status, $this->actorId)) {
             throw new NotFoundException('Condition not found');
         }
     }

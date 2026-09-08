@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Organization;
 
 /**
  * Organizations are the tenant roots themselves, so this repository is not
@@ -13,14 +14,7 @@ use App\Core\Repository;
  */
 final class OrganizationRepository extends Repository
 {
-    protected string $table        = 'organizations';
-    protected bool   $tenantScoped = false;
-
-    protected array $fillable = [
-        'name', 'slug', 'country_id', 'email', 'phone', 'address', 'city',
-        'logo_path', 'currency_code', 'timezone', 'tax_rate', 'invoice_prefix',
-        'next_invoice_no', 'status', 'created_at', 'updated_at',
-    ];
+    protected string $model = Organization::class;
 
     public function findBySlug(string $slug): ?array
     {

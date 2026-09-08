@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\AuthToken;
 
 /**
  * auth_tokens. Stores only SHA-256 hashes: a database dump must not hand the
@@ -12,17 +13,7 @@ use App\Core\Repository;
  */
 final class TokenRepository extends Repository
 {
-    protected string $table        = 'auth_tokens';
-    protected bool   $tenantScoped = false;
-    protected bool   $timestamps   = false;
-
-    protected array $fillable = [
-        'user_id', 'type', 'token_hash', 'parent_id', 'active_org_id',
-        'device_name', 'device_id', 'ip_address', 'user_agent',
-        'expires_at', 'revoked_at', 'last_used_at', 'created_at',
-    ];
-
-    protected array $hidden = ['token_hash'];
+    protected string $model = AuthToken::class;
 
     /**
      * Look up a live token of the given type and return it with its user.
@@ -134,6 +125,25 @@ final class TokenRepository extends Repository
                 AND expires_at > UTC_TIMESTAMP()
               ORDER BY last_used_at DESC, created_at DESC',
             ['uid' => $userId],
+        );
+    }
+
+    /**
+     * Remember which clinic this session is working in.
+     *
+     * Written to the access token AND to the refresh token it came from, so a
+     * refresh keeps the caller where they were rather than dropping them back
+     * to no clinic — which would read as a random logout from one tenant.
+     */
+    public function bindActiveOrganization(int $accessTokenId, int $organizationId): void
+    {
+        Database::statement(
+            'UPDATE auth_tokens
+                SET active_org_id = :org
+              WHERE id = :id OR id = (SELECT parent_id FROM (
+                        SELECT parent_id FROM auth_tokens WHERE id = :id
+                  ) AS p)',
+            ['org' => $organizationId, 'id' => $accessTokenId],
         );
     }
 

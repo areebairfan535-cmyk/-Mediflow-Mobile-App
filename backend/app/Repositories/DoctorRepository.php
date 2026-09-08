@@ -5,16 +5,11 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Doctor;
 
 final class DoctorRepository extends Repository
 {
-    protected string $table = 'doctors';
-
-    protected array $fillable = [
-        'user_id', 'specialty', 'qualification', 'license_no', 'experience_years',
-        'consultation_fee', 'followup_fee', 'bio', 'room', 'slot_minutes',
-        'is_accepting', 'created_at', 'updated_at',
-    ];
+    protected string $model = Doctor::class;
 
     /** @return list<array<string,mixed>> */
     public function listWithUser(?string $specialty = null, ?bool $acceptingOnly = null): array
@@ -118,6 +113,24 @@ final class DoctorRepository extends Repository
 
             return $this->schedule($doctorId);
         });
+    }
+
+    /**
+     * The doctor's name as a patient would read it.
+     *
+     * Two services wanted this and each wrote the join itself, which is one
+     * join too many for something that only ever appears in notification text.
+     * The fallback is deliberate: a reminder that says "Your doctor" is better
+     * than one that fails because a row went missing.
+     */
+    public function displayName(int $doctorId): string
+    {
+        $row = Database::selectOne(
+            'SELECT u.name FROM doctors d JOIN users u ON u.id = d.user_id WHERE d.id = :id',
+            ['id' => $doctorId],
+        );
+
+        return (string) ($row['name'] ?? 'Your doctor');
     }
 
     /** Working windows for one weekday. @return list<array<string,mixed>> */

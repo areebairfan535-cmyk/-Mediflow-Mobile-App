@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Role;
 
 /**
  * roles + permissions + role_permissions + organization_users reads.
@@ -15,13 +16,7 @@ use App\Core\Repository;
  */
 final class RoleRepository extends Repository
 {
-    protected string $table        = 'roles';
-    protected bool   $tenantScoped = false;
-
-    protected array $fillable = [
-        'organization_id', 'slug', 'name', 'description', 'is_system',
-        'created_at', 'updated_at',
-    ];
+    protected string $model = Role::class;
 
     /** System role template by slug (organization_id IS NULL). */
     public function findSystemRole(string $slug): ?array

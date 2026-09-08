@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\InsuranceProvider;
 
 /**
  * Insurance providers and patient policies (§8).
@@ -15,14 +16,7 @@ use App\Core\Repository;
  */
 final class InsuranceRepository extends Repository
 {
-    protected string $table        = 'insurance_providers';
-    protected bool   $tenantScoped = false;   // providers can be shared
-
-    protected array $fillable = [
-        'organization_id', 'country_id', 'name', 'code', 'contact_email',
-        'contact_phone', 'portal_url', 'claim_format', 'avg_settle_days',
-        'is_active', 'created_at', 'updated_at',
-    ];
+    protected string $model = InsuranceProvider::class;
 
     /**
      * Providers this organization may use: its own, plus the shared ones.

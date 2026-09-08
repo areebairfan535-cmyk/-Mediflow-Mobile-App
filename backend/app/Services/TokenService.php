@@ -174,14 +174,8 @@ final class TokenService
      */
     public function setActiveOrganization(int $accessTokenId, int $organizationId): void
     {
-        \App\Core\Database::statement(
-            'UPDATE auth_tokens
-                SET active_org_id = :org
-              WHERE id = :id OR id = (SELECT parent_id FROM (
-                        SELECT parent_id FROM auth_tokens WHERE id = :id
-                  ) AS p)',
-            ['org' => $organizationId, 'id' => $accessTokenId],
-        );
+        (new \App\Repositories\TokenRepository())
+            ->bindActiveOrganization($accessTokenId, $organizationId);
     }
 
     private function hash(string $plaintext): string

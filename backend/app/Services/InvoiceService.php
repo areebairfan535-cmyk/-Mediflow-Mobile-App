@@ -76,11 +76,7 @@ final class InvoiceService extends Service
 
     private function countryId(array $settings): ?int
     {
-        $row = \App\Core\Database::selectOne(
-            'SELECT country_id FROM organizations WHERE id = :id',
-            ['id' => $this->requireOrganization()],
-        );
-        return $row === null ? null : (int) $row['country_id'];
+        return $this->invoices()->countryId();
     }
 
     // ---------------------------------------------------------------
@@ -379,18 +375,55 @@ final class InvoiceService extends Service
     /**
      * Mark issued invoices whose due date has passed. Intended for a nightly
      * job; exposed so it can also be triggered from the admin UI.
+     *
+     * The patient is told (§20 invoice.overdue). Changing a status in silence
+     * and then chasing the person for a bill they were never warned about is
+     * the wrong order to do those two things in — and the notification is
+     * cheap: the row is already being read to know which ones changed.
      */
     public function markOverdue(): int
     {
-        return \App\Core\Database::statement(
-            'UPDATE invoices
-                SET status = \'overdue\', updated_at = :now
-              WHERE organization_id = :org
-                AND status IN (\'issued\', \'partially_paid\')
-                AND due_date IS NOT NULL
-                AND due_date < :today',
-            ['now' => now(), 'org' => $this->requireOrganization(), 'today' => gmdate('Y-m-d')],
+        $this->requireOrganization();
+
+        // Read first, then update. Doing it the other way round loses the list
+        // — after the UPDATE there is nothing left to tell them apart from
+        // invoices that went overdue last week and were already chased.
+        $invoices = $this->invoices();
+        $due      = $invoices->pastDue(gmdate('Y-m-d'));
+
+        if ($due === []) {
+            return 0;
+        }
+
+        $count = $invoices->markOverdue(
+            array_map(static fn (array $i): int => (int) $i['id'], $due),
         );
+
+        $notify = new NotificationService($this->organizationId, $this->actorId);
+        foreach ($due as $invoice) {
+            // One patient's notification failing must not stop the rest of the
+            // run — the status change is the part that has to happen.
+            try {
+                $notify->notifyPatient(
+                    (int) $invoice['patient_id'],
+                    'invoice.overdue',
+                    [
+                        'invoice_no'   => $invoice['invoice_no'],
+                        'amount'       => $invoice['currency_code'] . ' '
+                                        . Money::round(Money::subtract(
+                                            (string) $invoice['grand_total'],
+                                            (string) $invoice['paid_total'],
+                                        )),
+                        'subject_type' => 'invoice',
+                        'subject_id'   => (int) $invoice['id'],
+                    ],
+                );
+            } catch (\Throwable $e) {
+                error_log('[notify] overdue notification failed: ' . $e->getMessage());
+            }
+        }
+
+        return $count;
     }
 
     /** @param array<string,mixed> $invoice */

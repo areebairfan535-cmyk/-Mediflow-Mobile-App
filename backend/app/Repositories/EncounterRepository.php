@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Encounter;
 
 /**
  * Encounters — the hub of the clinical model (§5).
@@ -16,15 +17,7 @@ use App\Core\Repository;
  */
 final class EncounterRepository extends Repository
 {
-    protected string $table = 'encounters';
-
-    protected array $fillable = [
-        'patient_id', 'doctor_id', 'appointment_id', 'encounter_no', 'type', 'status',
-        'chief_complaint', 'symptoms', 'examination',
-        'bp_systolic', 'bp_diastolic', 'pulse', 'temperature_c', 'weight_kg', 'height_cm',
-        'followup_on', 'started_at', 'completed_at',
-        'created_by', 'updated_by', 'created_at', 'updated_at',
-    ];
+    protected string $model = Encounter::class;
 
     public function nextEncounterNo(): string
     {
@@ -139,6 +132,46 @@ final class EncounterRepository extends Repository
                   WHERE organization_id = :org AND prescription_id = :rid
                   ORDER BY sort_order, id',
                 ['org' => $org, 'rid' => (int) $rx['id']],
+            );
+        }
+
+        /**
+         * What happened last time (§4).
+         *
+         * The workflow asks the doctor to check previous visits before
+         * diagnosing, and until this was here the only way to do that was the
+         * Full chart button — which leaves the consultation. Nobody navigates
+         * away from a half-written note to read history, so in practice that
+         * step was skipped.
+         *
+         * Five is enough to see a pattern and short enough to read at a
+         * glance. Completed only: an abandoned consultation from last week is
+         * not history, it is a mistake somebody left open.
+         */
+        $encounter['previous_visits'] = Database::select(
+            'SELECT e.id, e.encounter_no, e.type, e.chief_complaint,
+                    e.created_at, e.completed_at, e.followup_on,
+                    u.name AS doctor_name, d.specialty
+               FROM encounters e
+               JOIN doctors d ON d.id = e.doctor_id
+               JOIN users   u ON u.id = d.user_id
+              WHERE e.organization_id = :org
+                AND e.patient_id = :pid
+                AND e.id <> :eid
+                AND e.status = \'completed\'
+              ORDER BY COALESCE(e.completed_at, e.created_at) DESC
+              LIMIT 5',
+            ['org' => $org, 'pid' => (int) $encounter['patient_id'], 'eid' => $encounterId],
+        );
+
+        // What each of those visits concluded. A date with no diagnosis beside
+        // it tells the doctor nothing they could act on.
+        foreach ($encounter['previous_visits'] as $i => $visit) {
+            $encounter['previous_visits'][$i]['diagnoses'] = Database::select(
+                'SELECT description, icd10_code, type FROM diagnoses
+                  WHERE organization_id = :org AND encounter_id = :eid
+                  ORDER BY FIELD(type, \'primary\',\'secondary\',\'provisional\',\'differential\'), id',
+                ['org' => $org, 'eid' => (int) $visit['id']],
             );
         }
 

@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Claim;
 
 /**
  * Claims and claim lines (§8).
@@ -14,17 +15,7 @@ use App\Core\Repository;
  */
 final class ClaimRepository extends Repository
 {
-    protected string $table = 'claims';
-
-    protected array $fillable = [
-        'patient_id', 'invoice_id', 'encounter_id', 'insurance_policy_id',
-        'claim_no', 'external_claim_no', 'status', 'currency_code',
-        'claimed_amount', 'approved_amount', 'paid_amount', 'patient_responsibility',
-        'rejection_code', 'rejection_reason', 'resubmission_of', 'submission_count',
-        'ai_risk_score', 'ai_missing_items',
-        'submitted_at', 'decided_at', 'paid_at',
-        'created_by', 'updated_by', 'created_at', 'updated_at',
-    ];
+    protected string $model = Claim::class;
 
     public function nextClaimNo(): string
     {
@@ -254,5 +245,56 @@ final class ClaimRepository extends Repository
             $byStatus[$row['status']] = $row;
         }
         return $byStatus;
+    }
+    /**
+     * The diagnosis code a claim should carry, when the biller has not said.
+     *
+     * Insurers key off the ICD-10 code, and a claim sent without one comes
+     * straight back. The ordering is the point: a primary diagnosis is what
+     * the visit was for, and only if there is none do the lesser kinds stand
+     * in — a differential is a maybe, and a maybe is the last thing to bill on.
+     */
+    public function primaryDiagnosisCode(int $encounterId): ?string
+    {
+        $row = Database::selectOne(
+            'SELECT icd10_code FROM diagnoses
+              WHERE organization_id = :org AND encounter_id = :eid
+                AND icd10_code IS NOT NULL
+              ORDER BY FIELD(type, \x27primary\x27,\x27secondary\x27,\x27provisional\x27,\x27differential\x27)
+              LIMIT 1',
+            ['org' => $this->scopeBinding(), 'eid' => $encounterId],
+        );
+
+        return $row['icd10_code'] ?? null;
+    }
+
+    /**
+     * Record the insurer's decision on one line of a claim.
+     *
+     * Line by line rather than a single figure on the claim: an insurer that
+     * approves four items and refuses the fifth has said something specific,
+     * and the reason belongs against the item it is about.
+     *
+     * @param array<string,mixed> $decision
+     */
+    public function saveItemDecision(int $claimId, int $itemId, array $decision): void
+    {
+        Database::statement(
+            'UPDATE claim_items
+                SET approved_amount  = :amount,
+                    status           = :status,
+                    rejection_reason = :reason,
+                    updated_at       = :now
+              WHERE organization_id = :org AND claim_id = :cid AND id = :id',
+            [
+                'amount' => $decision['approved_amount'],
+                'status' => $decision['status'],
+                'reason' => $decision['rejection_reason'],
+                'now'    => now(),
+                'org'    => $this->scopeBinding(),
+                'cid'    => $claimId,
+                'id'     => $itemId,
+            ],
+        );
     }
 }

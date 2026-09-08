@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\AuditLog;
 
 /**
  * audit_logs (§16). Append-only: there is deliberately no update() or
@@ -13,15 +14,7 @@ use App\Core\Repository;
  */
 final class AuditLogRepository extends Repository
 {
-    protected string $table        = 'audit_logs';
-    protected bool   $tenantScoped = true;
-    protected bool   $timestamps   = false;
-
-    protected array $fillable = [
-        'organization_id', 'user_id', 'action', 'resource_type', 'resource_id',
-        'patient_id', 'old_values', 'new_values', 'route', 'method',
-        'ip_address', 'user_agent', 'request_id', 'created_at',
-    ];
+    protected string $model = AuditLog::class;
 
     /**
      * Insert without touching find() afterwards.

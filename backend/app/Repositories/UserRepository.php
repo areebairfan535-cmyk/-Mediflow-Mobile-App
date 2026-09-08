@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Core\Repository;
+use App\Models\User;
 
 /**
  * Users are global identities, not tenant rows — the same person may work at
@@ -12,17 +13,9 @@ use App\Core\Repository;
  */
 final class UserRepository extends Repository
 {
-    protected string $table        = 'users';
-    protected bool   $tenantScoped = false;
-
-    protected array $fillable = [
-        'name', 'email', 'phone', 'password', 'avatar_path', 'locale',
-        'is_platform_admin', 'status', 'email_verified_at', 'last_login_at',
-        'failed_logins', 'locked_until', 'created_at', 'updated_at',
-    ];
+    protected string $model = User::class;
 
     /** Never leak the hash or lockout counters to a client. */
-    protected array $hidden = ['password', 'failed_logins', 'locked_until'];
 
     /**
      * Look up by email INCLUDING the password hash — login needs it, so this

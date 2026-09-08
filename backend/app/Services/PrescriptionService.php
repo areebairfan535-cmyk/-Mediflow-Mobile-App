@@ -48,6 +48,17 @@ final class PrescriptionService extends Service
         return $row;
     }
 
+    /**
+     * The clinic's prescriptions (§19).
+     *
+     * @param array<string,mixed> $filters
+     * @return array{data: list<array<string,mixed>>, meta: array<string,int>}
+     */
+    public function search(array $filters, int $page, int $perPage): array
+    {
+        return $this->prescriptions()->search($filters, $page, $perPage);
+    }
+
     /** @return list<array<string,mixed>> */
     public function forPatient(int $patientId): array
     {
@@ -145,7 +156,7 @@ final class PrescriptionService extends Service
             throw new ConflictException('Add at least one medicine before issuing.');
         }
 
-        $repo->update($id, ['status' => 'issued', 'issued_at' => now()]);
+        $repo->update($id, ['status' => 'issued', 'issued_at' => now(), 'updated_by' => $this->actorId]);
 
         // §20: issuing is the moment the prescription becomes the patient's
         // document, so it is also the moment they are told about it.
@@ -169,18 +180,16 @@ final class PrescriptionService extends Service
 
     private function doctorName(int $doctorId): string
     {
-        $row = \App\Core\Database::selectOne(
-            'SELECT u.name FROM doctors d JOIN users u ON u.id = d.user_id WHERE d.id = :id',
-            ['id' => $doctorId],
-        );
-        return (string) ($row['name'] ?? 'Your doctor');
+        return (new \App\Repositories\DoctorRepository())
+            ->forOrganization($this->requireOrganization())
+            ->displayName($doctorId);
     }
 
     public function cancel(int $id): array
     {
         $repo = $this->prescriptions();
         $repo->findOrFail($id, 'Prescription');
-        $repo->update($id, ['status' => 'cancelled']);
+        $repo->update($id, ['status' => 'cancelled', 'updated_by' => $this->actorId]);
 
         return $this->show($id);
     }

@@ -4,15 +4,17 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\ConflictException;
-use App\Core\Database;
 use App\Core\ForbiddenException;
 use App\Core\NotFoundException;
 use App\Core\Service;
 use App\Repositories\ClinicalRepository;
 use App\Repositories\InvoiceRepository;
+use App\Repositories\PatientPortalRepository;
 use App\Repositories\PatientRepository;
 use App\Repositories\PrescriptionRepository;
 use App\Services\Billing\Money;
+use App\Services\Payments\GatewayUnavailable;
+use App\Services\Payments\PaymentGateways;
 
 /**
  * Everything the patient mobile app reads (§3).
@@ -34,6 +36,12 @@ final class PatientPortalService extends Service
     private function patients(): PatientRepository
     {
         return (new PatientRepository())->forOrganization($this->requireOrganization());
+    }
+
+    /** The portal's own reads — every one of them filtered to one patient. */
+    private function portal(): PatientPortalRepository
+    {
+        return (new PatientPortalRepository())->forOrganization($this->requireOrganization());
     }
 
     /**
@@ -68,66 +76,19 @@ final class PatientPortalService extends Service
      */
     public function dashboard(): array
     {
-        $org       = $this->requireOrganization();
         $patient   = $this->patients()->withClinicalSummary($this->meId());
         $patientId = (int) $patient['id'];
-        $args      = ['org' => $org, 'pid' => $patientId];
+        $portal    = $this->portal();
 
-        $upcoming = Database::select(
-            'SELECT a.id, a.scheduled_at, a.duration_minutes, a.status, a.reason, a.type,
-                    u.name AS doctor_name, d.specialty, d.room
-               FROM appointments a
-               JOIN doctors d ON d.id = a.doctor_id
-               JOIN users   u ON u.id = d.user_id
-              WHERE a.organization_id = :org AND a.patient_id = :pid
-                AND a.scheduled_at >= UTC_TIMESTAMP()
-                AND a.status IN (\'booked\', \'confirmed\', \'arrived\')
-              ORDER BY a.scheduled_at
-              LIMIT 5',
-            $args,
-        );
-
-        $bills = Database::select(
-            'SELECT id, invoice_no, currency_code, grand_total, paid_total,
-                    balance_due, status, due_date, issue_date
-               FROM invoices
-              WHERE organization_id = :org AND patient_id = :pid
-                AND status IN (\'issued\', \'partially_paid\', \'overdue\')
-              ORDER BY due_date, created_at
-              LIMIT 10',
-            $args,
-        );
+        $upcoming = $portal->upcomingAppointments($patientId);
+        $bills    = $portal->openBills($patientId);
 
         $outstanding = Money::sum(array_column($bills, 'balance_due'));
 
-        $prescriptions = Database::select(
-            'SELECT rx.id, rx.prescription_no, rx.status, rx.issued_at, rx.created_at,
-                    u.name AS doctor_name,
-                    (SELECT COUNT(*) FROM prescription_items i
-                      WHERE i.prescription_id = rx.id) AS item_count
-               FROM prescriptions rx
-               JOIN doctors d ON d.id = rx.doctor_id
-               JOIN users   u ON u.id = d.user_id
-              WHERE rx.organization_id = :org AND rx.patient_id = :pid
-                AND rx.status = \'issued\'
-              ORDER BY rx.issued_at DESC
-              LIMIT 5',
-            $args,
-        );
+        $prescriptions = $portal->issuedPrescriptions($patientId);
 
         // §3 "treatment reminders": follow-ups the doctor asked for.
-        $followUps = Database::select(
-            'SELECT e.id, e.encounter_no, e.followup_on, u.name AS doctor_name
-               FROM encounters e
-               JOIN doctors d ON d.id = e.doctor_id
-               JOIN users   u ON u.id = d.user_id
-              WHERE e.organization_id = :org AND e.patient_id = :pid
-                AND e.followup_on IS NOT NULL
-                AND e.followup_on >= CURDATE()
-              ORDER BY e.followup_on
-              LIMIT 5',
-            $args,
-        );
+        $followUps = $portal->upcomingFollowUps($patientId);
 
         return [
             'patient' => [
@@ -186,14 +147,7 @@ final class PatientPortalService extends Service
     {
         $patient = $this->patients()->withClinicalSummary($this->meId());
 
-        $patient['insurance'] = Database::select(
-            'SELECT ip.*, prov.name AS provider_name
-               FROM insurance_policies ip
-               JOIN insurance_providers prov ON prov.id = ip.insurance_provider_id
-              WHERE ip.organization_id = :org AND ip.patient_id = :pid
-              ORDER BY ip.is_primary DESC',
-            ['org' => $this->requireOrganization(), 'pid' => (int) $patient['id']],
-        );
+        $patient['insurance'] = $this->portal()->insurancePolicies((int) $patient['id']);
 
         return $patient;
     }
@@ -236,27 +190,7 @@ final class PatientPortalService extends Service
     /** @return list<array<string,mixed>> */
     public function appointments(?string $scope = null): array
     {
-        $where = ['a.organization_id = :org', 'a.patient_id = :pid'];
-
-        if ($scope === 'upcoming') {
-            $where[] = 'a.scheduled_at >= UTC_TIMESTAMP()';
-            $where[] = "a.status IN ('booked','confirmed','arrived','in_consultation')";
-        } elseif ($scope === 'past') {
-            $where[] = "(a.scheduled_at < UTC_TIMESTAMP() OR a.status IN ('completed','cancelled','no_show'))";
-        }
-
-        return Database::select(
-            'SELECT a.*, u.name AS doctor_name, d.specialty, d.room,
-                    e.id AS encounter_id, e.status AS encounter_status
-               FROM appointments a
-               JOIN doctors d ON d.id = a.doctor_id
-               JOIN users   u ON u.id = d.user_id
-               LEFT JOIN encounters e ON e.appointment_id = a.id
-              WHERE ' . implode(' AND ', $where) . '
-              ORDER BY a.scheduled_at DESC
-              LIMIT 100',
-            ['org' => $this->requireOrganization(), 'pid' => $this->meId()],
-        );
+        return $this->portal()->appointments($this->meId(), $scope);
     }
 
     /**
@@ -275,25 +209,12 @@ final class PatientPortalService extends Service
      */
     private function countFor(string $table, string $predicate): int
     {
-        $row = Database::selectOne(
-            "SELECT COUNT(*) AS c FROM $table
-              WHERE organization_id = :org AND patient_id = :pid AND $predicate",
-            ['org' => $this->requireOrganization(), 'pid' => $this->meId()],
-        );
-
-        return (int) ($row['c'] ?? 0);
+        return $this->portal()->countFor($this->meId(), $table, $predicate);
     }
 
     private function lastVisitDate(): ?string
     {
-        $row = Database::selectOne(
-            'SELECT MAX(COALESCE(completed_at, started_at)) AS last
-               FROM encounters
-              WHERE organization_id = :org AND patient_id = :pid AND status = \'completed\'',
-            ['org' => $this->requireOrganization(), 'pid' => $this->meId()],
-        );
-
-        return $row['last'] ?? null;
+        return $this->portal()->lastVisitDate($this->meId());
     }
 
     /**
@@ -305,30 +226,46 @@ final class PatientPortalService extends Service
      *
      * @return list<array<string,mixed>>
      */
-    public function bookableDoctors(?string $search = null, ?string $specialty = null): array
+    public function bookableDoctors(
+        ?string $search = null,
+        ?string $specialty = null,
+        ?string $location = null,
+    ): array {
+        return $this->portal()->bookableDoctors($search, $specialty, $location);
+    }
+
+    /**
+     * The specialties and locations this clinic actually has doctors in (§3).
+     *
+     * Read from the doctors themselves rather than a fixed list, so the filter
+     * can never offer a choice that returns nothing. Doctors who have stopped
+     * accepting patients are excluded for the same reason.
+     *
+     * @return array{specialties: list<string>, locations: list<string>}
+     */
+    public function doctorFilters(): array
     {
-        $where    = ['d.organization_id = :org', 'd.is_accepting = 1'];
-        $bindings = ['org' => $this->requireOrganization()];
+        $rows = $this->portal()->doctorFilterValues();
 
-        if ($search !== null && trim($search) !== '') {
-            $where[]             = '(u.name LIKE :q OR d.specialty LIKE :q)';
-            $bindings['q']       = '%' . trim($search) . '%';
-        }
-        if ($specialty !== null && trim($specialty) !== '') {
-            $where[]              = 'd.specialty = :spec';
-            $bindings['spec']     = trim($specialty);
+        $specialties = [];
+        $locations   = [];
+        foreach ($rows as $row) {
+            $specialty = trim((string) ($row['specialty'] ?? ''));
+            $location  = trim((string) ($row['location'] ?? ''));
+            if ($specialty !== '') {
+                $specialties[$specialty] = true;
+            }
+            if ($location !== '') {
+                $locations[$location] = true;
+            }
         }
 
-        return Database::select(
-            'SELECT d.id, u.name AS doctor_name, d.specialty, d.qualification,
-                    d.experience_years, d.consultation_fee, d.followup_fee,
-                    d.room, d.slot_minutes, d.bio
-               FROM doctors d
-               JOIN users u ON u.id = d.user_id
-              WHERE ' . implode(' AND ', $where) . '
-              ORDER BY d.specialty, u.name',
-            $bindings,
-        );
+        $specialties = array_keys($specialties);
+        $locations   = array_keys($locations);
+        sort($specialties);
+        sort($locations);
+
+        return ['specialties' => $specialties, 'locations' => $locations];
     }
 
     /**
@@ -383,11 +320,7 @@ final class PatientPortalService extends Service
      */
     public function reschedule(int $appointmentId, string $startsAt, ?string $reason = null): array
     {
-        $appointment = Database::selectOne(
-            'SELECT * FROM appointments
-              WHERE organization_id = :org AND id = :id AND patient_id = :pid',
-            ['org' => $this->requireOrganization(), 'id' => $appointmentId, 'pid' => $this->meId()],
-        );
+        $appointment = $this->portal()->ownAppointment($this->meId(), $appointmentId);
 
         if ($appointment === null) {
             throw new NotFoundException('Appointment not found');
@@ -407,11 +340,7 @@ final class PatientPortalService extends Service
     public function cancelAppointment(int $appointmentId, ?string $reason): array
     {
         $patientId   = $this->meId();
-        $appointment = Database::selectOne(
-            'SELECT * FROM appointments
-              WHERE organization_id = :org AND id = :id AND patient_id = :pid',
-            ['org' => $this->requireOrganization(), 'id' => $appointmentId, 'pid' => $patientId],
-        );
+        $appointment = $this->portal()->ownAppointment($patientId, $appointmentId);
 
         if ($appointment === null) {
             throw new NotFoundException('Appointment not found');
@@ -430,39 +359,14 @@ final class PatientPortalService extends Service
      */
     public function records(): array
     {
-        $org       = $this->requireOrganization();
-        $patientId = $this->meId();
-
-        $encounters = Database::select(
-            'SELECT e.id, e.encounter_no, e.type, e.status, e.chief_complaint,
-                    e.symptoms, e.examination, e.followup_on,
-                    e.bp_systolic, e.bp_diastolic, e.pulse, e.temperature_c,
-                    e.weight_kg, e.height_cm,
-                    e.created_at, e.completed_at,
-                    u.name AS doctor_name, d.specialty
-               FROM encounters e
-               JOIN doctors d ON d.id = e.doctor_id
-               JOIN users   u ON u.id = d.user_id
-              WHERE e.organization_id = :org AND e.patient_id = :pid
-                AND e.status = \'completed\'
-              ORDER BY e.created_at DESC
-              LIMIT 50',
-            ['org' => $org, 'pid' => $patientId],
-        );
+        $portal     = $this->portal();
+        $encounters = $portal->completedEncounters($this->meId());
 
         foreach ($encounters as $i => $encounter) {
-            $args = ['org' => $org, 'eid' => (int) $encounter['id']];
+            $encounterId = (int) $encounter['id'];
 
-            $encounters[$i]['diagnoses'] = Database::select(
-                'SELECT description, icd10_code, type FROM diagnoses
-                  WHERE organization_id = :org AND encounter_id = :eid',
-                $args,
-            );
-            $encounters[$i]['procedures'] = Database::select(
-                'SELECT name, site, performed_at FROM procedures
-                  WHERE organization_id = :org AND encounter_id = :eid',
-                $args,
-            );
+            $encounters[$i]['diagnoses']  = $portal->encounterDiagnoses($encounterId);
+            $encounters[$i]['procedures'] = $portal->encounterProcedures($encounterId);
             // Clinical notes are deliberately NOT exposed: §5 treats them as
             // the clinician's working record, and releasing them is a decision
             // the clinic makes per document, via medical_documents.
@@ -529,27 +433,9 @@ final class PatientPortalService extends Service
             $visible,
         ));
 
-        $payments = Database::select(
-            'SELECT p.receipt_no, p.method, p.amount, p.currency_code, p.status,
-                    p.paid_at, p.created_at, i.invoice_no
-               FROM payments p
-               JOIN invoices i ON i.id = p.invoice_id
-              WHERE p.organization_id = :org AND p.patient_id = :pid
-              ORDER BY p.created_at DESC
-              LIMIT 50',
-            ['org' => $org, 'pid' => $patientId],
-        );
-
-        $refunds = Database::select(
-            'SELECT r.amount, r.currency_code, r.status, r.reason, r.refunded_at,
-                    i.invoice_no
-               FROM refunds r
-               JOIN invoices i ON i.id = r.invoice_id
-              WHERE r.organization_id = :org AND i.patient_id = :pid
-              ORDER BY r.created_at DESC
-              LIMIT 20',
-            ['org' => $org, 'pid' => $patientId],
-        );
+        $portal   = $this->portal();
+        $payments = $portal->paymentHistory($patientId);
+        $refunds  = $portal->refundHistory($patientId);
 
         return [
             'outstanding' => Money::round($outstanding),
@@ -575,6 +461,126 @@ final class PatientPortalService extends Service
         }
 
         return $invoice;
+    }
+
+    /**
+     * Open an online payment for one of this patient's invoices (§7).
+     *
+     * The amount is read off the invoice here and never accepted from the
+     * caller. A patient who could name their own figure would be able to
+     * settle a 50,000 bill with a 50 payment that the ledger then records as
+     * genuine, because by the time it comes back from the gateway it is a real
+     * captured payment.
+     *
+     * Nothing is written yet. An abandoned checkout leaves no payment row and
+     * no balance change — the invoice is untouched until money actually moves.
+     *
+     * @return array<string,mixed>
+     */
+    public function startPayment(int $invoiceId): array
+    {
+        $invoice = $this->invoice($invoiceId);
+        $gateway = PaymentGateways::resolve();
+
+        if (!$gateway->isConfigured()) {
+            throw new GatewayUnavailable((string) $gateway->unavailableReason());
+        }
+
+        $balance = Money::round((string) $invoice['balance_due']);
+
+        if (Money::compare($balance, '0') <= 0) {
+            throw new ConflictException('This invoice is already settled.');
+        }
+
+        $appUrl = rtrim((string) env('APP_URL', 'http://localhost:8000'), '/');
+        $return = (string) env('PAYMENT_RETURN_URL', $appUrl . '/payment/return');
+        $cancel = (string) env('PAYMENT_CANCEL_URL', $appUrl . '/payment/cancel');
+
+        $started = $gateway->createPayment($balance, (string) $invoice['currency_code'], [
+            'invoice_id'  => (string) $invoice['id'],
+            'invoice_no'  => (string) ($invoice['invoice_no'] ?? ''),
+            'description' => 'Invoice ' . ($invoice['invoice_no'] ?? $invoice['id']),
+            'return_url'  => $return,
+            'cancel_url'  => $cancel,
+        ]);
+
+        return [
+            'gateway'      => $gateway->name(),
+            'reference'    => $started['reference'],
+            'approval_url' => $started['approval_url'],
+            'amount'       => $balance,
+            'currency'     => $invoice['currency_code'],
+        ];
+    }
+
+    /**
+     * Take the money the patient approved, and write it to the ledger (§7).
+     *
+     * Everything here is checked against the gateway's answer rather than the
+     * app's request, because between opening a payment and confirming it the
+     * client has been to another company's website and back:
+     *
+     *   - which invoice was paid comes from the gateway, not the caller;
+     *   - the invoice must still belong to this patient;
+     *   - the same reference is recorded once, so a refreshed browser or a
+     *     retried request cannot become two payments;
+     *   - the amount written is the amount captured, not the amount asked for.
+     *
+     * @return array<string,mixed>
+     */
+    public function confirmPayment(string $reference): array
+    {
+        $gateway = PaymentGateways::resolve();
+        $result  = $gateway->capture($reference);
+
+        // Already recorded? Then this is a repeat of a call that worked, and
+        // the honest answer is the payment that already exists — not an error,
+        // and certainly not a second row.
+        $existing = $this->portal()->findByGatewayRef($gateway->name(), $result['reference']);
+        if ($existing !== null) {
+            return ['payment' => $existing, 'invoice' => $this->invoice((int) $existing['invoice_id'])];
+        }
+
+        $invoiceId = (int) $result['invoice_id'];
+        if ($invoiceId <= 0) {
+            throw new GatewayUnavailable(
+                'The payment went through but the gateway did not say which invoice it was for. '
+                . 'The clinic has the reference and will apply it.'
+            );
+        }
+
+        // Re-runs invoice(): still this patient's, still not a draft.
+        $invoice = $this->invoice($invoiceId);
+        $captured = Money::round((string) $result['amount']);
+        $balance  = Money::round((string) $invoice['balance_due']);
+
+        // The money is already taken, so this cannot simply refuse. It refuses
+        // to *invent a ledger entry that does not balance*, and leaves the
+        // reference where the clinic can find it.
+        if (Money::greaterThan($captured, $balance)) {
+            error_log(sprintf(
+                '[payment] captured %s %s against invoice %d which owes %s — reference %s',
+                $result['currency'], $captured, $invoiceId, $balance, $result['reference'],
+            ));
+
+            throw new ConflictException(
+                'Your payment went through, but it is more than this invoice now owes — '
+                . 'someone may have paid part of it already. The clinic has the reference '
+                . 'and will refund the difference.'
+            );
+        }
+
+        $recorded = (new PaymentService($this->organizationId, $this->actorId))->record($invoiceId, [
+            'amount'      => $captured,
+            'method'      => 'online',
+            'status'      => 'succeeded',
+            'gateway'     => $gateway->name(),
+            'gateway_ref' => $result['reference'],
+            'paid_at'     => $result['paid_at'],
+            'notes'       => 'Paid by the patient in the app',
+        ]);
+
+        return $recorded;
     }
 
     /**

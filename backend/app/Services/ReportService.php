@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Core\Database;
 use App\Core\Service;
+use App\Repositories\ReportRepository;
 use App\Services\Billing\Money;
 
 /**
@@ -17,6 +17,11 @@ use App\Services\Billing\Money;
  */
 final class ReportService extends Service
 {
+    private function reports(): ReportRepository
+    {
+        return (new ReportRepository())->forOrganization($this->requireOrganization());
+    }
+
     /**
      * Revenue summary for a date range.
      *
@@ -24,42 +29,15 @@ final class ReportService extends Service
      */
     public function summary(string $from, string $to): array
     {
-        $org  = $this->requireOrganization();
-        $args = ['org' => $org, 'from' => $from . ' 00:00:00', 'to' => $to . ' 23:59:59'];
+        $org     = $this->requireOrganization();
+        $reports = $this->reports();
 
-        $billed = Database::selectOne(
-            'SELECT
-               COUNT(*)                                       AS invoice_count,
-               COALESCE(SUM(subtotal), 0)                      AS subtotal,
-               COALESCE(SUM(discount_total), 0)                AS discounts,
-               COALESCE(SUM(tax_total), 0)                     AS tax,
-               COALESCE(SUM(grand_total), 0)                   AS billed,
-               COALESCE(SUM(paid_total), 0)                    AS collected,
-               COALESCE(SUM(grand_total - paid_total), 0)      AS outstanding
-             FROM invoices
-            WHERE organization_id = :org
-              AND status NOT IN (\'draft\', \'cancelled\')
-              AND created_at BETWEEN :from AND :to',
-            $args,
-        ) ?? [];
+        $billed = $reports->billedBetween($from, $to);
 
         // Cash actually received in the window — not the same as invoices
         // raised in the window, because a January invoice can be paid in March.
-        $received = Database::selectOne(
-            'SELECT COUNT(*) AS payment_count, COALESCE(SUM(amount), 0) AS received
-               FROM payments
-              WHERE organization_id = :org AND status = \'succeeded\'
-                AND created_at BETWEEN :from AND :to',
-            $args,
-        ) ?? [];
-
-        $refunded = Database::selectOne(
-            'SELECT COUNT(*) AS refund_count, COALESCE(SUM(amount), 0) AS refunded
-               FROM refunds
-              WHERE organization_id = :org AND status = \'completed\'
-                AND refunded_at BETWEEN :from AND :to',
-            $args,
-        ) ?? [];
+        $received = $reports->receivedBetween($from, $to);
+        $refunded = $reports->refundedBetween($from, $to);
 
         $currency = (new \App\Repositories\OrganizationRepository())
             ->settings($org)['currency_code'] ?? 'USD';
@@ -92,56 +70,19 @@ final class ReportService extends Service
     /** Cash taken, split by method — what a day-end till reconciliation needs (§7). */
     public function byPaymentMethod(string $from, string $to): array
     {
-        return Database::select(
-            'SELECT method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-               FROM payments
-              WHERE organization_id = :org AND status = \'succeeded\'
-                AND created_at BETWEEN :from AND :to
-              GROUP BY method
-              ORDER BY total DESC',
-            ['org' => $this->requireOrganization(), 'from' => $from . ' 00:00:00', 'to' => $to . ' 23:59:59'],
-        );
+        return $this->reports()->paymentMethodMix($from, $to);
     }
 
     /** Which services earn the money. */
     public function topServices(string $from, string $to, int $limit = 15): array
     {
-        return Database::select(
-            'SELECT COALESCE(ii.service_code, \'(ad-hoc)\') AS code,
-                    ii.description,
-                    SUM(ii.quantity)   AS quantity,
-                    SUM(ii.line_total) AS revenue
-               FROM invoice_items ii
-               JOIN invoices i ON i.id = ii.invoice_id
-              WHERE ii.organization_id = :org
-                AND i.status NOT IN (\'draft\', \'cancelled\')
-                AND i.created_at BETWEEN :from AND :to
-              GROUP BY code, ii.description
-              ORDER BY revenue DESC
-              LIMIT ' . max(1, min(100, $limit)),
-            ['org' => $this->requireOrganization(), 'from' => $from . ' 00:00:00', 'to' => $to . ' 23:59:59'],
-        );
+        return $this->reports()->topServices($from, $to, $limit);
     }
 
     /** Revenue per doctor, via the encounter each invoice came from. */
     public function byDoctor(string $from, string $to): array
     {
-        return Database::select(
-            'SELECT u.name AS doctor_name, d.specialty,
-                    COUNT(DISTINCT i.id)             AS invoices,
-                    COALESCE(SUM(i.grand_total), 0)  AS billed,
-                    COALESCE(SUM(i.paid_total), 0)   AS collected
-               FROM invoices i
-               JOIN encounters e ON e.id = i.encounter_id
-               JOIN doctors d    ON d.id = e.doctor_id
-               JOIN users u      ON u.id = d.user_id
-              WHERE i.organization_id = :org
-                AND i.status NOT IN (\'draft\', \'cancelled\')
-                AND i.created_at BETWEEN :from AND :to
-              GROUP BY u.name, d.specialty
-              ORDER BY billed DESC',
-            ['org' => $this->requireOrganization(), 'from' => $from . ' 00:00:00', 'to' => $to . ' 23:59:59'],
-        );
+        return $this->reports()->revenueByDoctor($from, $to);
     }
 
     /**
@@ -150,21 +91,7 @@ final class ReportService extends Service
      */
     public function agedReceivables(): array
     {
-        $rows = Database::select(
-            'SELECT i.id, i.invoice_no, i.grand_total, i.paid_total,
-                    (i.grand_total - i.paid_total) AS balance,
-                    i.due_date, i.status,
-                    CONCAT(p.first_name, \' \', p.last_name) AS patient_name,
-                    p.mrn, p.phone,
-                    DATEDIFF(CURDATE(), COALESCE(i.due_date, DATE(i.created_at))) AS days_late
-               FROM invoices i
-               JOIN patients p ON p.id = i.patient_id
-              WHERE i.organization_id = :org
-                AND i.status IN (\'issued\', \'partially_paid\', \'overdue\')
-                AND i.grand_total > i.paid_total
-              ORDER BY days_late DESC',
-            ['org' => $this->requireOrganization()],
-        );
+        $rows = $this->reports()->openBalances();
 
         $buckets = [
             'current'  => ['label' => 'Not yet due', 'count' => 0, 'total' => '0'],

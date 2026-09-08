@@ -4,11 +4,12 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\ConflictException;
-use App\Core\Database;
 use App\Core\NotFoundException;
 use App\Core\Service;
 use App\Core\ValidationException;
+use App\Repositories\AiAssistantRepository;
 use App\Repositories\ClaimRepository;
+use App\Repositories\ClinicalNoteRepository;
 use App\Repositories\EncounterRepository;
 use App\Repositories\InvoiceRepository;
 use App\Repositories\ServiceRepository;
@@ -59,6 +60,17 @@ final class AiAssistantService extends Service
     private function catalogue(): ServiceRepository
     {
         return (new ServiceRepository())->forOrganization($this->requireOrganization());
+    }
+
+    private function notes(): ClinicalNoteRepository
+    {
+        return (new ClinicalNoteRepository())->forOrganization($this->requireOrganization());
+    }
+
+    /** Exactly what the model is allowed to read — see the repository. */
+    private function context(): AiAssistantRepository
+    {
+        return (new AiAssistantRepository())->forOrganization($this->requireOrganization());
     }
 
     // ===============================================================
@@ -145,11 +157,8 @@ TXT;
      */
     public function approveNote(int $noteId, ?string $editedBody = null): array
     {
-        $org  = $this->requireOrganization();
-        $note = Database::selectOne(
-            'SELECT * FROM clinical_notes WHERE organization_id = :org AND id = :id',
-            ['org' => $org, 'id' => $noteId],
-        );
+        $notes = $this->notes();
+        $note  = $notes->find($noteId);
 
         if ($note === null) {
             throw new NotFoundException('Note not found');
@@ -158,32 +167,15 @@ TXT;
             throw new ConflictException('This note has already been approved.');
         }
 
-        Database::statement(
-            'UPDATE clinical_notes
-                SET body = :body, approved_by = :by, approved_at = :now, updated_at = :now
-              WHERE organization_id = :org AND id = :id',
-            [
-                'body' => $editedBody ?? $note['body'],
-                'by'   => $this->actorId,
-                'now'  => now(),
-                'org'  => $org,
-                'id'   => $noteId,
-            ],
-        );
+        $notes->approve($noteId, (string) ($editedBody ?? $note['body']), $this->actorId);
 
-        return Database::selectOne(
-            'SELECT * FROM clinical_notes WHERE id = :id',
-            ['id' => $noteId],
-        ) ?? [];
+        return $notes->find($noteId) ?? [];
     }
 
     public function discardNote(int $noteId): void
     {
-        $org  = $this->requireOrganization();
-        $note = Database::selectOne(
-            'SELECT * FROM clinical_notes WHERE organization_id = :org AND id = :id',
-            ['org' => $org, 'id' => $noteId],
-        );
+        $notes = $this->notes();
+        $note  = $notes->find($noteId);
 
         if ($note === null) {
             throw new NotFoundException('Note not found');
@@ -194,10 +186,7 @@ TXT;
             );
         }
 
-        Database::statement(
-            'DELETE FROM clinical_notes WHERE organization_id = :org AND id = :id',
-            ['org' => $org, 'id' => $noteId],
-        );
+        $notes->discard($noteId);
     }
 
     // ===============================================================
@@ -279,14 +268,14 @@ TXT;
         // from the catalogue — never a price the model produced.
         $byCode      = [];
         foreach ($catalogue as $service) {
-            $byCode[strtoupper((string) $service['code'])] = $service;
+            $byCode[self::normaliseCode((string) $service['code'])] = $service;
         }
 
         $suggestions = [];
         $dropped     = [];
 
         foreach ($result['suggestions'] ?? [] as $suggestion) {
-            $code    = strtoupper(trim((string) ($suggestion['code'] ?? '')));
+            $code    = self::normaliseCode((string) ($suggestion['code'] ?? ''));
             $service = $byCode[$code] ?? null;
 
             if ($service === null) {
@@ -332,6 +321,25 @@ TXT;
         ];
     }
 
+    /**
+     * A service code as it comes back from a model, made comparable.
+     *
+     * The catalogue is put in the prompt as a bulleted list — "- DENT-RCT |
+     * Root Canal Treatment | 15000 PKR" — so a model that echoes the code back
+     * exactly as it read it returns "- DENT-RCT". A plain uppercase compare
+     * missed that and reported a service the clinic sells every day as one it
+     * does not offer, which is worse than missing it silently: the biller is
+     * told something false about their own catalogue.
+     *
+     * So strip the leading bullet and any surrounding punctuation or quotes,
+     * then compare. Both sides go through this, so the catalogue and the
+     * answer are normalised the same way.
+     */
+    private static function normaliseCode(string $code): string
+    {
+        return strtoupper(trim($code, " \t\n\r\0\x0B-*•·\"'`.,:;()[]"));
+    }
+
     // ===============================================================
     // 3. AI Claim Assistant (§9)
     // ===============================================================
@@ -358,20 +366,8 @@ TXT;
 
         // Past rejections from this insurer are the most useful signal
         // available, so give them to the model.
-        $history = Database::select(
-            'SELECT c.rejection_code, c.rejection_reason, COUNT(*) AS times
-               FROM claims c
-               JOIN insurance_policies ip ON ip.id = c.insurance_policy_id
-              WHERE c.organization_id = :org
-                AND ip.insurance_provider_id = (
-                    SELECT insurance_provider_id FROM insurance_policies WHERE id = :pid
-                )
-                AND c.status IN (\'rejected\', \'partially_approved\')
-                AND c.rejection_reason IS NOT NULL
-              GROUP BY c.rejection_code, c.rejection_reason
-              ORDER BY times DESC
-              LIMIT 10',
-            ['org' => $this->requireOrganization(), 'pid' => (int) $claim['insurance_policy_id']],
+        $history = $this->context()->insurerRejectionHistory(
+            (int) $claim['insurance_policy_id'],
         );
 
         $system = <<<'TXT'
@@ -413,18 +409,7 @@ TXT;
         $missing = array_values(array_filter(array_map('strval', $result['missing'] ?? [])));
 
         // Persist the advisory result; the claim's status is untouched.
-        Database::statement(
-            'UPDATE claims
-                SET ai_risk_score = :score, ai_missing_items = :missing, updated_at = :now
-              WHERE organization_id = :org AND id = :id',
-            [
-                'score'   => $score,
-                'missing' => json_encode($missing, JSON_UNESCAPED_UNICODE),
-                'now'     => now(),
-                'org'     => $this->requireOrganization(),
-                'id'      => $claimId,
-            ],
-        );
+        $this->context()->saveClaimRiskScore($claimId, $score, $missing);
 
         return [
             'claim_id'          => $claimId,
@@ -560,12 +545,7 @@ TXT;
     {
         $this->plan()->assertWithin('ai_calls');               // §22
 
-        $patient = Database::selectOne(
-            'SELECT p.*, TIMESTAMPDIFF(YEAR, p.date_of_birth, CURDATE()) AS age
-               FROM patients p
-              WHERE p.organization_id = :org AND p.id = :id',
-            ['org' => $this->requireOrganization(), 'id' => $patientId],
-        );
+        $patient = $this->context()->patientWithAge($patientId);
 
         if ($patient === null) {
             throw new NotFoundException('Patient not found');
@@ -618,7 +598,7 @@ TXT;
      */
     private function patientContext(int $patientId, array $patient): string
     {
-        $args = ['org' => $this->requireOrganization(), 'pid' => $patientId];
+        $context = $this->context();
 
         $parts = [
             'Patient: ' . $patient['first_name'] . ' ' . $patient['last_name']
@@ -627,55 +607,27 @@ TXT;
                 . ($patient['blood_group'] ? ', blood group ' . $patient['blood_group'] : ''),
         ];
 
-        $allergies = Database::select(
-            'SELECT substance, severity, reaction FROM allergies
-              WHERE organization_id = :org AND patient_id = :pid AND is_active = 1',
-            $args,
-        );
+        $allergies = $context->activeAllergies($patientId);
         $parts[] = 'Allergies: ' . ($allergies === [] ? 'none recorded' : implode('; ', array_map(
             static fn(array $a): string => $a['substance'] . ' (' . $a['severity'] . ')'
                 . ($a['reaction'] ? ' - ' . $a['reaction'] : ''),
             $allergies,
         )));
 
-        $conditions = Database::select(
-            'SELECT name, status FROM medical_conditions
-              WHERE organization_id = :org AND patient_id = :pid',
-            $args,
-        );
+        $conditions = $context->conditions($patientId);
         $parts[] = 'Conditions: ' . ($conditions === [] ? 'none recorded' : implode('; ', array_map(
             static fn(array $c): string => $c['name'] . ' (' . $c['status'] . ')',
             $conditions,
         )));
 
-        $visits = Database::select(
-            "SELECT e.encounter_no, e.chief_complaint, e.completed_at,
-                    GROUP_CONCAT(d.description SEPARATOR ', ') AS diagnoses
-               FROM encounters e
-               LEFT JOIN diagnoses d ON d.encounter_id = e.id
-              WHERE e.organization_id = :org AND e.patient_id = :pid
-                AND e.status = 'completed'
-              GROUP BY e.id
-              ORDER BY e.completed_at DESC
-              LIMIT 5",
-            $args,
-        );
+        $visits = $context->recentVisits($patientId);
         foreach ($visits as $visit) {
             $parts[] = 'Visit ' . substr((string) $visit['completed_at'], 0, 10) . ': '
                 . ($visit['chief_complaint'] ?: 'consultation')
                 . ($visit['diagnoses'] ? ' -> ' . $visit['diagnoses'] : '');
         }
 
-        $medicines = Database::select(
-            "SELECT pi.medication_name, pi.dosage, pi.frequency, pi.duration
-               FROM prescription_items pi
-               JOIN prescriptions p ON p.id = pi.prescription_id
-              WHERE p.organization_id = :org AND p.patient_id = :pid
-                AND p.status = 'issued'
-              ORDER BY p.issued_at DESC
-              LIMIT 12",
-            $args,
-        );
+        $medicines = $context->currentMedicines($patientId);
         foreach ($medicines as $m) {
             $parts[] = 'Prescribed: ' . $m['medication_name'] . ' '
                 . trim(($m['dosage'] ?? '') . ' ' . ($m['frequency'] ?? '') . ' ' . ($m['duration'] ?? ''));
@@ -711,73 +663,19 @@ TXT;
             throw new ValidationException(['q' => ['Type at least two characters.']]);
         }
 
-        $org  = $this->requireOrganization();
-        $like = '%' . $term . '%';
-        $take = max(1, min(50, $limit));
+        $search = $this->context();
+        $like   = '%' . $term . '%';
+        $take   = max(1, min(50, $limit));
 
         // Every branch is tenant-scoped and every value is bound. The term
         // reaches SQL only as a parameter, never as text.
-        $patients = Database::select(
-            "SELECT id, mrn, first_name, last_name, phone, email, status
-               FROM patients
-              WHERE organization_id = :org
-                AND (CONCAT(first_name, ' ', last_name) LIKE :q
-                     OR mrn LIKE :q2 OR phone LIKE :q3 OR email LIKE :q4)
-              ORDER BY first_name
-              LIMIT $take",
-            ['org' => $org, 'q' => $like, 'q2' => $like, 'q3' => $like, 'q4' => $like],
-        );
-
-        $invoices = Database::select(
-            "SELECT i.id, i.invoice_no, i.status, i.grand_total, i.balance_due,
-                    i.currency_code, i.patient_id,
-                    CONCAT(p.first_name, ' ', p.last_name) AS patient_name
-               FROM invoices i
-               JOIN patients p ON p.id = i.patient_id
-              WHERE i.organization_id = :org AND i.invoice_no LIKE :q
-              ORDER BY i.id DESC
-              LIMIT $take",
-            ['org' => $org, 'q' => $like],
-        );
-
-        $prescriptions = Database::select(
-            "SELECT rx.id, rx.prescription_no, rx.status, rx.patient_id,
-                    CONCAT(p.first_name, ' ', p.last_name) AS patient_name
-               FROM prescriptions rx
-               JOIN patients p ON p.id = rx.patient_id
-              WHERE rx.organization_id = :org AND rx.prescription_no LIKE :q
-              ORDER BY rx.id DESC
-              LIMIT $take",
-            ['org' => $org, 'q' => $like],
-        );
-
+        $patients      = $search->searchPatients($like, $take);
+        $invoices      = $search->searchInvoices($like, $take);
+        $prescriptions = $search->searchPrescriptions($like, $take);
         // "Who have I diagnosed with this?" — a question the patient list
         // cannot answer, and the reason this is worth having at all.
-        $diagnoses = Database::select(
-            "SELECT d.description, d.icd10_code, d.encounter_id, e.patient_id,
-                    e.encounter_no, e.completed_at,
-                    CONCAT(p.first_name, ' ', p.last_name) AS patient_name
-               FROM diagnoses d
-               JOIN encounters e ON e.id = d.encounter_id
-               JOIN patients p   ON p.id = e.patient_id
-              WHERE d.organization_id = :org
-                AND (d.description LIKE :q OR d.icd10_code LIKE :q2)
-              ORDER BY e.completed_at DESC
-              LIMIT $take",
-            ['org' => $org, 'q' => $like, 'q2' => $like],
-        );
-
-        $medicines = Database::select(
-            "SELECT pi.medication_name, pi.dosage, rx.prescription_no, rx.id AS prescription_id,
-                    rx.patient_id, CONCAT(p.first_name, ' ', p.last_name) AS patient_name
-               FROM prescription_items pi
-               JOIN prescriptions rx ON rx.id = pi.prescription_id
-               JOIN patients p       ON p.id = rx.patient_id
-              WHERE rx.organization_id = :org AND pi.medication_name LIKE :q
-              ORDER BY rx.id DESC
-              LIMIT $take",
-            ['org' => $org, 'q' => $like],
-        );
+        $diagnoses     = $search->searchDiagnoses($like, $take);
+        $medicines     = $search->searchMedicines($like, $take);
 
         return [
             'query'   => $term,

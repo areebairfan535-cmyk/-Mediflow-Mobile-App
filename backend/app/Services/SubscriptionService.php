@@ -3,11 +3,12 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Core\Database;
 use App\Core\NotFoundException;
 use App\Core\PlanLimitException;
 use App\Core\Service;
 use App\Core\ValidationException;
+use App\Repositories\PlanRepository;
+use App\Repositories\SubscriptionRepository;
 
 /**
  * The SaaS subscription model (§22) — plans, what each one allows, and how
@@ -60,9 +61,7 @@ final class SubscriptionService extends Service
     /** @return list<array<string,mixed>> every plan a clinic can choose. */
     public function plans(): array
     {
-        return Database::select(
-            'SELECT * FROM plans WHERE is_active = 1 ORDER BY sort_order, price_monthly',
-        );
+        return (new PlanRepository())->activeAll();
     }
 
     /**
@@ -168,23 +167,14 @@ final class SubscriptionService extends Service
         $plan  = $this->planById((int) $subscription['plan_id']);
         $limit = $plan[self::LIMIT_COLUMN[$metric] ?? ''] ?? null;
 
-        Database::statement(
-            'INSERT INTO subscription_items
-                (organization_id, subscription_id, metric, period_start, period_end,
-                 included_qty, used_qty, created_at, updated_at)
-             VALUES (:org, :sub, :metric, :start, :end, :included, :qty, :now, :now)
-             ON DUPLICATE KEY UPDATE used_qty = used_qty + VALUES(used_qty),
-                                     updated_at = VALUES(updated_at)',
-            [
-                'org'      => $orgId,
-                'sub'      => (int) $subscription['id'],
-                'metric'   => $metric,
-                'start'    => $start,
-                'end'      => $end,
-                'included' => $limit === null ? null : (int) $limit,
-                'qty'      => $quantity,
-                'now'      => now(),
-            ],
+        $this->subscriptions()->addUsage(
+            $orgId,
+            (int) $subscription['id'],
+            $metric,
+            $start,
+            $end,
+            $limit === null ? null : (int) $limit,
+            $quantity,
         );
     }
 
@@ -231,20 +221,11 @@ final class SubscriptionService extends Service
             );
         }
 
-        Database::statement(
-            'UPDATE subscriptions
-                SET plan_id = :plan, amount = :amount, currency_code = :currency,
-                    status = :status, updated_at = :now
-              WHERE id = :id',
-            [
-                'plan'     => $planId,
-                'amount'   => $plan['price_monthly'],
-                'currency' => $plan['currency_code'],
-                // Choosing a plan ends any trial: the clinic has decided.
-                'status'   => 'active',
-                'now'      => now(),
-                'id'       => (int) $subscription['id'],
-            ],
+        $this->subscriptions()->movePlan(
+            (int) $subscription['id'],
+            $planId,
+            (string) $plan['price_monthly'],
+            (string) $plan['currency_code'],
         );
 
         return $this->current($orgId);
@@ -262,54 +243,41 @@ final class SubscriptionService extends Service
      */
     public static function startFor(int $organizationId, string $currency, ?string $planSlug = null): array
     {
-        $plan = Database::selectOne(
-            'SELECT * FROM plans WHERE slug = :slug AND is_active = 1',
-            ['slug' => $planSlug ?? 'free'],
-        ) ?? Database::selectOne(
-            'SELECT * FROM plans WHERE is_active = 1 ORDER BY sort_order, price_monthly LIMIT 1',
-        );
+        $plans = new PlanRepository();
+        $plan  = $plans->findActiveBySlug($planSlug ?? 'free') ?? $plans->cheapestActive();
 
         if ($plan === null) {
             throw new NotFoundException('No subscription plan is configured — run database/seed.php');
         }
 
-        Database::statement(
-            'INSERT INTO subscriptions
-                (organization_id, plan_id, status, billing_cycle, currency_code, amount,
-                 current_period_start, current_period_end, created_at, updated_at)
-             VALUES (:org, :plan, \'active\', \'monthly\', :currency, :amount,
-                     :start, :end, :now, :now)',
-            [
-                'org'      => $organizationId,
-                'plan'     => (int) $plan['id'],
-                'currency' => $currency,
-                'amount'   => $plan['price_monthly'],
-                'start'    => gmdate('Y-m-01'),
-                'end'      => gmdate('Y-m-t'),
-                'now'      => now(),
-            ],
+        $subscriptions = new SubscriptionRepository();
+
+        $subscriptions->start(
+            $organizationId,
+            (int) $plan['id'],
+            $currency,
+            (string) $plan['price_monthly'],
+            gmdate('Y-m-01'),
+            gmdate('Y-m-t'),
         );
 
-        return Database::selectOne(
-            'SELECT * FROM subscriptions WHERE organization_id = :org ORDER BY id DESC LIMIT 1',
-            ['org' => $organizationId],
-        ) ?? [];
+        return $subscriptions->latestFor($organizationId) ?? [];
     }
 
     // ---------------------------------------------------------------
     // Internals
     // ---------------------------------------------------------------
 
+    private function subscriptions(): SubscriptionRepository
+    {
+        return new SubscriptionRepository();
+    }
+
     /** @return array<string,mixed> */
     private function subscriptionFor(int $orgId): array
     {
-        $subscription = Database::selectOne(
-            'SELECT * FROM subscriptions
-              WHERE organization_id = :org
-              ORDER BY FIELD(status, \'active\', \'trialing\', \'past_due\', \'cancelled\', \'expired\'), id DESC
-              LIMIT 1',
-            ['org' => $orgId],
-        );
+        $subscriptions = $this->subscriptions();
+        $subscription  = $subscriptions->activeFor($orgId);
 
         if ($subscription !== null) {
             return $subscription;
@@ -317,25 +285,16 @@ final class SubscriptionService extends Service
 
         // An organization created before this module existed has no row. Give
         // it the free plan rather than treating "no subscription" as "no
-        // limits" — the safer reading of a missing record.
-        // A clinic's own currency column is NULL until it overrides the
-        // market's, so read the resolved value — not the column, which would
-        // stamp a Karachi clinic's subscription in USD.
-        $organization = Database::selectOne(
-            'SELECT COALESCE(o.currency_code, c.currency_code) AS currency_code
-               FROM organizations o
-               JOIN countries c ON c.id = o.country_id
-              WHERE o.id = :id',
-            ['id' => $orgId],
-        );
-
-        return self::startFor($orgId, (string) ($organization['currency_code'] ?? 'USD'));
+        // limits" — the safer reading of a missing record. The currency comes
+        // from the resolved market value, so a Karachi clinic is not stamped
+        // in USD (§23).
+        return self::startFor($orgId, $subscriptions->billingCurrency($orgId) ?? 'USD');
     }
 
     /** @return array<string,mixed> */
     private function planById(int $planId): array
     {
-        $plan = Database::selectOne('SELECT * FROM plans WHERE id = :id', ['id' => $planId]);
+        $plan = (new PlanRepository())->find($planId);
         if ($plan === null) {
             throw new NotFoundException('Plan not found');
         }
@@ -377,53 +336,6 @@ final class SubscriptionService extends Service
         $from = $start . ' 00:00:00';
         $to   = gmdate('Y-m-d H:i:s', strtotime($end . ' 00:00:00 +1 day'));
 
-        return match ($metric) {
-            'doctors' => $this->count(
-                'SELECT COUNT(*) c FROM doctors WHERE organization_id = :org',
-                ['org' => $orgId],
-            ),
-            'staff' => $this->count(
-                'SELECT COUNT(*) c FROM organization_users
-                  WHERE organization_id = :org AND status = \'active\'',
-                ['org' => $orgId],
-            ),
-            'patients' => $this->count(
-                'SELECT COUNT(*) c FROM patients
-                  WHERE organization_id = :org AND status = \'active\'',
-                ['org' => $orgId],
-            ),
-            'storage' => (int) ceil(
-                $this->count(
-                    'SELECT COALESCE(SUM(size_bytes), 0) c FROM medical_documents
-                      WHERE organization_id = :org',
-                    ['org' => $orgId],
-                ) / 1048576,
-            ),
-            'appointments' => $this->count(
-                'SELECT COUNT(*) c FROM appointments
-                  WHERE organization_id = :org AND created_at >= :from AND created_at < :to',
-                ['org' => $orgId, 'from' => $from, 'to' => $to],
-            ),
-            'invoices' => $this->count(
-                'SELECT COUNT(*) c FROM invoices
-                  WHERE organization_id = :org AND created_at >= :from AND created_at < :to',
-                ['org' => $orgId, 'from' => $from, 'to' => $to],
-            ),
-            // No source table — this is what subscription_items is for.
-            'ai_calls' => $this->count(
-                'SELECT COALESCE(SUM(used_qty), 0) c FROM subscription_items
-                  WHERE organization_id = :org AND metric = \'ai_calls\'
-                    AND period_start = :start',
-                ['org' => $orgId, 'start' => $start],
-            ),
-            default => 0,
-        };
-    }
-
-    /** @param array<string,mixed> $bindings */
-    private function count(string $sql, array $bindings): int
-    {
-        $row = Database::selectOne($sql, $bindings);
-        return (int) ($row['c'] ?? 0);
+        return $this->subscriptions()->usage($orgId, $metric, $start, $from, $to);
     }
 }

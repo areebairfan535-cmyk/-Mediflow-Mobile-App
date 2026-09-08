@@ -7,6 +7,7 @@ use App\Core\ConflictException;
 use App\Core\Controller;
 use App\Core\Request;
 use App\Core\ValidationException;
+use App\Repositories\OrganizationRepository;
 use App\Repositories\ServiceRepository;
 use App\Services\AuditService;
 use App\Services\InvoiceService;
@@ -37,16 +38,15 @@ final class BillingController extends Controller
             'category' => 'nullable|in:consultation,followup,procedure,lab,imaging,injection,room,other',
         ]);
 
-        $country = \App\Core\Database::selectOne(
-            'SELECT country_id FROM organizations WHERE id = :id',
-            ['id' => $request->organizationId()],
-        );
+        // Which market the clinic is in — the catalogue shows country-specific
+        // services alongside the shared ones (§23).
+        $organization = (new OrganizationRepository())->find((int) $request->organizationId());
 
         $this->ok([
             'services'    => $this->catalogue($request)->catalogue(
                 $q['search'] ?? null,
                 $q['category'] ?? null,
-                $country === null ? null : (int) $country['country_id'],
+                $organization === null ? null : (int) $organization['country_id'],
             ),
             'departments' => $this->catalogue($request)->departments(),
         ]);
@@ -349,6 +349,25 @@ final class BillingController extends Controller
         ]);
 
         $this->ok(['payments' => PaymentService::for($request)->ledger($filters)]);
+    }
+
+    /**
+     * One payment, with the invoice and patient it belongs to (§19).
+     *
+     * The ledger could be filtered down to a single row, but "show me receipt
+     * RCT-000412" is a lookup, not a search, and it should not depend on the
+     * caller knowing which filter narrows to one.
+     */
+    public function showPayment(Request $request): never
+    {
+        $payment = PaymentService::for($request)->show($request->intParam('id'));
+
+        // Reading a payment is reading part of a patient's record (§16).
+        (new AuditService())->logPatientAccess(
+            $request, (int) $payment['patient_id'], 'payment', (int) $payment['id'],
+        );
+
+        $this->ok(['payment' => $payment]);
     }
 
     // ---------------- refunds ----------------

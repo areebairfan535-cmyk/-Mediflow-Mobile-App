@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\ConflictException;
-use App\Core\Database;
 use App\Core\NotFoundException;
 use App\Core\Service;
 use App\Core\ValidationException;
@@ -150,15 +149,8 @@ final class ClaimService extends Service
         // Diagnoses from the encounter justify the charges.
         $diagnosisCode = null;
         if (!empty($invoice['encounter_id'])) {
-            $primary = Database::selectOne(
-                'SELECT icd10_code FROM diagnoses
-                  WHERE organization_id = :org AND encounter_id = :eid
-                    AND icd10_code IS NOT NULL
-                  ORDER BY FIELD(type, \'primary\',\'secondary\',\'provisional\',\'differential\')
-                  LIMIT 1',
-                ['org' => $org, 'eid' => (int) $invoice['encounter_id']],
-            );
-            $diagnosisCode = $primary['icd10_code'] ?? null;
+            $diagnosisCode = $this->claims()
+                ->primaryDiagnosisCode((int) $invoice['encounter_id']);
         }
 
         $warnings = [];
@@ -533,23 +525,11 @@ final class ClaimService extends Service
             if (empty($decision['id'])) {
                 continue;
             }
-            Database::statement(
-                'UPDATE claim_items
-                    SET approved_amount  = :amount,
-                        status           = :status,
-                        rejection_reason = :reason,
-                        updated_at       = :now
-                  WHERE organization_id = :org AND claim_id = :cid AND id = :id',
-                [
-                    'amount' => Money::round($decision['approved_amount'] ?? 0),
-                    'status' => $decision['status'] ?? 'claimed',
-                    'reason' => $decision['rejection_reason'] ?? null,
-                    'now'    => now(),
-                    'org'    => $this->requireOrganization(),
-                    'cid'    => $claimId,
-                    'id'     => (int) $decision['id'],
-                ],
-            );
+            $this->claims()->saveItemDecision($claimId, (int) $decision['id'], [
+                'approved_amount'  => Money::round($decision['approved_amount'] ?? 0),
+                'status'           => $decision['status'] ?? 'claimed',
+                'rejection_reason' => $decision['rejection_reason'] ?? null,
+            ]);
         }
     }
 

@@ -4,11 +4,12 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\ConflictException;
-use App\Core\Database;
 use App\Core\NotFoundException;
 use App\Core\Service;
 use App\Core\ValidationException;
 use App\Repositories\InvoiceRepository;
+use App\Repositories\PaymentRepository;
+use App\Repositories\RefundRepository;
 use App\Services\Billing\Money;
 
 /**
@@ -27,6 +28,16 @@ final class PaymentService extends Service
         return (new InvoiceRepository())->forOrganization($this->requireOrganization());
     }
 
+    private function payments(): PaymentRepository
+    {
+        return (new PaymentRepository())->forOrganization($this->requireOrganization());
+    }
+
+    private function refunds(): RefundRepository
+    {
+        return (new RefundRepository())->forOrganization($this->requireOrganization());
+    }
+
     /**
      * Record a payment against an invoice.
      *
@@ -35,16 +46,13 @@ final class PaymentService extends Service
      */
     public function record(int $invoiceId, array $data): array
     {
-        $org = $this->requireOrganization();
+        $this->requireOrganization();
 
-        return $this->transaction(function () use ($org, $invoiceId, $data): array {
+        return $this->transaction(function () use ($invoiceId, $data): array {
             // Lock the invoice for the whole check-then-write. Without this,
             // two cashiers taking the last payment at the same moment could
             // both pass the balance check and overpay the invoice.
-            $invoice = Database::selectOne(
-                'SELECT * FROM invoices WHERE organization_id = :org AND id = :id FOR UPDATE',
-                ['org' => $org, 'id' => $invoiceId],
-            );
+            $invoice = $this->invoices()->findForUpdate($invoiceId);
 
             if ($invoice === null) {
                 throw new NotFoundException('Invoice not found');
@@ -70,44 +78,28 @@ final class PaymentService extends Service
                 ));
             }
 
-            $receiptNo = $this->nextReceiptNo($org);
+            $payments  = $this->payments();
+            $receiptNo = $payments->nextReceiptNo();
 
-            Database::statement(
-                'INSERT INTO payments
-                    (organization_id, invoice_id, patient_id, receipt_no, method, status,
-                     currency_code, amount, gateway, gateway_ref, paid_at, received_by,
-                     notes, created_at, updated_at)
-                 VALUES (:org, :iid, :pid, :receipt, :method, :status, :cur, :amount,
-                         :gateway, :ref, :paid_at, :by, :notes, :now, :now)',
-                [
-                    'org'     => $org,
-                    'iid'     => $invoiceId,
-                    'pid'     => (int) $invoice['patient_id'],
-                    'receipt' => $receiptNo,
-                    'method'  => $data['method'] ?? 'cash',
-                    // Cash and adjustments settle immediately; a gateway
-                    // payment is only 'succeeded' once the gateway says so.
-                    'status'  => $data['status'] ?? 'succeeded',
-                    'cur'     => $invoice['currency_code'],
-                    'amount'  => $amount,
-                    'gateway' => $data['gateway']     ?? null,
-                    'ref'     => $data['gateway_ref'] ?? null,
-                    'paid_at' => $data['paid_at']     ?? now(),
-                    'by'      => $this->actorId,
-                    'notes'   => $data['notes'] ?? null,
-                    'now'     => now(),
-                ],
-            );
-
-            $paymentId = Database::lastInsertId();
+            $payment = $payments->create([
+                'invoice_id'    => $invoiceId,
+                'patient_id'    => (int) $invoice['patient_id'],
+                'receipt_no'    => $receiptNo,
+                'method'        => $data['method'] ?? 'cash',
+                // Cash and adjustments settle immediately; a gateway payment
+                // is only 'succeeded' once the gateway says so.
+                'status'        => $data['status'] ?? 'succeeded',
+                'currency_code' => $invoice['currency_code'],
+                'amount'        => $amount,
+                'gateway'       => $data['gateway']     ?? null,
+                'gateway_ref'   => $data['gateway_ref'] ?? null,
+                'paid_at'       => $data['paid_at']     ?? now(),
+                'received_by'   => $this->actorId,
+                'notes'         => $data['notes'] ?? null,
+            ]);
 
             // Rebuild paid_total and the derived status from the ledger.
             $updated = $this->invoices()->recalculatePayments($invoiceId);
-
-            $payment = Database::selectOne(
-                'SELECT * FROM payments WHERE id = :id',
-                ['id' => $paymentId],
-            ) ?? [];
 
             // §20 "payment received". The receipt is what the patient wants to
             // see in the app, so it goes in the message.
@@ -139,12 +131,9 @@ final class PaymentService extends Service
      */
     public function requestRefund(int $paymentId, array $data): array
     {
-        $org = $this->requireOrganization();
+        $this->requireOrganization();
 
-        $payment = Database::selectOne(
-            'SELECT * FROM payments WHERE organization_id = :org AND id = :id',
-            ['org' => $org, 'id' => $paymentId],
-        );
+        $payment = $this->payments()->find($paymentId);
 
         if ($payment === null) {
             throw new NotFoundException('Payment not found');
@@ -162,13 +151,7 @@ final class PaymentService extends Service
         }
 
         // Cannot refund more than this payment, net of refunds already against it.
-        $alreadyRefunded = (string) (Database::selectOne(
-            'SELECT COALESCE(SUM(amount), 0) AS total
-               FROM refunds
-              WHERE organization_id = :org AND payment_id = :pid
-                AND status IN (\'pending\', \'approved\', \'completed\')',
-            ['org' => $org, 'pid' => $paymentId],
-        )['total'] ?? '0');
+        $alreadyRefunded = $this->refunds()->claimedAgainstPayment($paymentId);
 
         $refundable = Money::subtract((string) $payment['amount'], $alreadyRefunded);
 
@@ -180,27 +163,15 @@ final class PaymentService extends Service
             ));
         }
 
-        Database::statement(
-            'INSERT INTO refunds
-                (organization_id, payment_id, invoice_id, amount, currency_code,
-                 reason, status, created_by, created_at, updated_at)
-             VALUES (:org, :pid, :iid, :amount, :cur, :reason, \'pending\', :by, :now, :now)',
-            [
-                'org'    => $org,
-                'pid'    => $paymentId,
-                'iid'    => (int) $payment['invoice_id'],
-                'amount' => $amount,
-                'cur'    => $payment['currency_code'],
-                'reason' => (string) $data['reason'],
-                'by'     => $this->actorId,
-                'now'    => now(),
-            ],
-        );
-
-        return Database::selectOne(
-            'SELECT * FROM refunds WHERE id = :id',
-            ['id' => Database::lastInsertId()],
-        ) ?? [];
+        return $this->refunds()->create([
+            'payment_id'    => $paymentId,
+            'invoice_id'    => (int) $payment['invoice_id'],
+            'amount'        => $amount,
+            'currency_code' => $payment['currency_code'],
+            'reason'        => (string) $data['reason'],
+            'status'        => 'pending',
+            'created_by'    => $this->actorId,
+        ]);
     }
 
     /**
@@ -211,13 +182,11 @@ final class PaymentService extends Service
      */
     public function approveRefund(int $refundId): array
     {
-        $org = $this->requireOrganization();
+        $this->requireOrganization();
 
-        return $this->transaction(function () use ($org, $refundId): array {
-            $refund = Database::selectOne(
-                'SELECT * FROM refunds WHERE organization_id = :org AND id = :id FOR UPDATE',
-                ['org' => $org, 'id' => $refundId],
-            );
+        return $this->transaction(function () use ($refundId): array {
+            $refunds = $this->refunds();
+            $refund  = $refunds->findForUpdate($refundId);
 
             if ($refund === null) {
                 throw new NotFoundException('Refund not found');
@@ -226,48 +195,31 @@ final class PaymentService extends Service
                 throw new ConflictException("This refund is already {$refund['status']}.");
             }
 
-            Database::statement(
-                'UPDATE refunds
-                    SET status = \'completed\', approved_by = :by, refunded_at = :now,
-                        updated_at = :now
-                  WHERE organization_id = :org AND id = :id',
-                ['by' => $this->actorId, 'now' => now(), 'org' => $org, 'id' => $refundId],
-            );
+            $refunds->complete($refundId, $this->actorId);
 
             // Mark the payment refunded only when nothing of it remains.
-            $remaining = Database::selectOne(
-                'SELECT p.amount - COALESCE((
-                            SELECT SUM(r.amount) FROM refunds r
-                             WHERE r.payment_id = p.id AND r.status = \'completed\'
-                        ), 0) AS remaining
-                   FROM payments p WHERE p.id = :pid',
-                ['pid' => (int) $refund['payment_id']],
-            );
+            $payments  = $this->payments();
+            $paymentId = (int) $refund['payment_id'];
+            $remaining = $payments->remainingAfterRefunds($paymentId);
 
-            if ($remaining !== null && Money::isZero((string) $remaining['remaining'])) {
-                Database::statement(
-                    'UPDATE payments SET status = \'refunded\', updated_at = :now WHERE id = :pid',
-                    ['now' => now(), 'pid' => (int) $refund['payment_id']],
-                );
+            if ($remaining !== null && Money::isZero($remaining)) {
+                $payments->markRefunded($paymentId);
             }
 
-            $invoice = $this->invoices()->recalculatePayments((int) $refund['invoice_id']);
-
             return [
-                'refund'  => Database::selectOne('SELECT * FROM refunds WHERE id = :id', ['id' => $refundId]) ?? [],
-                'invoice' => $invoice,
+                'refund'  => $refunds->find($refundId) ?? [],
+                'invoice' => $this->invoices()->recalculatePayments((int) $refund['invoice_id']),
             ];
         });
     }
 
     public function rejectRefund(int $refundId, ?string $reason): array
     {
-        $org = $this->requireOrganization();
+        $this->requireOrganization();
 
-        $refund = Database::selectOne(
-            'SELECT * FROM refunds WHERE organization_id = :org AND id = :id',
-            ['org' => $org, 'id' => $refundId],
-        );
+        $refunds = $this->refunds();
+        $refund  = $refunds->find($refundId);
+
         if ($refund === null) {
             throw new NotFoundException('Refund not found');
         }
@@ -275,93 +227,37 @@ final class PaymentService extends Service
             throw new ConflictException("This refund is already {$refund['status']}.");
         }
 
-        Database::statement(
-            'UPDATE refunds
-                SET status = \'rejected\', approved_by = :by,
-                    reason = CONCAT(reason, :suffix), updated_at = :now
-              WHERE organization_id = :org AND id = :id',
-            [
-                'by'     => $this->actorId,
-                'suffix' => $reason !== null ? " | Rejected: $reason" : ' | Rejected',
-                'now'    => now(),
-                'org'    => $org,
-                'id'     => $refundId,
-            ],
-        );
+        $refunds->reject($refundId, $this->actorId, $reason);
 
-        return Database::selectOne('SELECT * FROM refunds WHERE id = :id', ['id' => $refundId]) ?? [];
+        return $refunds->find($refundId) ?? [];
     }
 
     /** @return list<array<string,mixed>> */
     public function ledger(array $filters): array
     {
-        $where    = ['pay.organization_id = :org'];
-        $bindings = ['org' => $this->requireOrganization()];
+        return $this->payments()->ledger($filters);
+    }
 
-        foreach ([
-            'patient_id' => 'pay.patient_id',
-            'invoice_id' => 'pay.invoice_id',
-            'method'     => 'pay.method',
-            'status'     => 'pay.status',
-        ] as $key => $column) {
-            if (!empty($filters[$key])) {
-                $where[]        = "$column = :$key";
-                $bindings[$key] = $filters[$key];
-            }
-        }
-        if (!empty($filters['from'])) {
-            $where[]          = 'pay.created_at >= :from';
-            $bindings['from'] = $filters['from'] . ' 00:00:00';
-        }
-        if (!empty($filters['to'])) {
-            $where[]        = 'pay.created_at <= :to';
-            $bindings['to'] = $filters['to'] . ' 23:59:59';
+    /**
+     * One payment — the receipt (§19).
+     *
+     * @return array<string,mixed>
+     */
+    public function show(int $paymentId): array
+    {
+        $payment = $this->payments()->findWithContext($paymentId);
+
+        if ($payment === null) {
+            throw new NotFoundException('Payment not found');
         }
 
-        return Database::select(
-            'SELECT pay.*,
-                    i.invoice_no, i.grand_total, i.status AS invoice_status,
-                    CONCAT(pt.first_name, \' \', pt.last_name) AS patient_name, pt.mrn,
-                    u.name AS received_by_name
-               FROM payments pay
-               JOIN invoices i  ON i.id = pay.invoice_id
-               JOIN patients pt ON pt.id = pay.patient_id
-               LEFT JOIN users u ON u.id = pay.received_by
-              WHERE ' . implode(' AND ', $where) . '
-              ORDER BY pay.created_at DESC
-              LIMIT 300',
-            $bindings,
-        );
+        return $payment;
     }
 
     /** @return list<array<string,mixed>> */
     public function pendingRefunds(): array
     {
-        return Database::select(
-            'SELECT r.*, i.invoice_no,
-                    CONCAT(p.first_name, \' \', p.last_name) AS patient_name,
-                    pay.receipt_no, pay.method,
-                    u.name AS requested_by_name
-               FROM refunds r
-               JOIN invoices i ON i.id = r.invoice_id
-               JOIN patients p ON p.id = i.patient_id
-               JOIN payments pay ON pay.id = r.payment_id
-               LEFT JOIN users u ON u.id = r.created_by
-              WHERE r.organization_id = :org AND r.status = \'pending\'
-              ORDER BY r.created_at',
-            ['org' => $this->requireOrganization()],
-        );
-    }
-
-    private function nextReceiptNo(int $org): string
-    {
-        $row = Database::selectOne(
-            'SELECT COALESCE(MAX(CAST(SUBSTRING(receipt_no, 5) AS UNSIGNED)), 0) AS n
-               FROM payments
-              WHERE organization_id = :org AND receipt_no REGEXP \'^RCT-[0-9]+$\'',
-            ['org' => $org],
-        );
-        return sprintf('RCT-%06d', ((int) ($row['n'] ?? 0)) + 1);
+        return $this->refunds()->pendingWithContext();
     }
 
     /** @param array<string,mixed> $invoice */
