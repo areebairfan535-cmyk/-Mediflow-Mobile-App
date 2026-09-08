@@ -116,6 +116,9 @@ export default function Consultation({ encounterId, session, go }) {
         />
       )}
 
+      {/* ---------- 0. What happened last time ---------- */}
+      <PreviousVisits visits={e.previous_visits} go={go} />
+
       {/* ---------- 1. Complaint, symptoms, vitals ---------- */}
       <div className="step">
         <div className="step-title"><span className="step-num">1</span> Complaint &amp; examination</div>
@@ -406,6 +409,65 @@ function PatientAllergies({ patientId }) {
       .catch(() => {})
   }, [patientId])
   return <AllergyBanner allergies={allergies} />
+}
+
+/**
+ * The last few completed visits, above the workflow rather than inside it.
+ *
+ * §4 puts "check previous visits" before diagnosing, and the only way to do
+ * that used to be the Full chart button — which leaves the consultation. So it
+ * sits here instead, collapsed: present when the doctor wants it, out of the
+ * way when they already know the patient.
+ *
+ * Closed by default on purpose. A doctor mid-consultation is looking for the
+ * next empty field, and a wall of history above it is something to scroll past
+ * every time.
+ */
+function PreviousVisits({ visits, go }) {
+  const [open, setOpen] = useState(false)
+  if (!visits || visits.length === 0) return null
+
+  return (
+    <div className="step">
+      <div className="step-title">
+        <span className="step-num">↺</span> Previous visits
+        <button className="btn btn-sm btn-secondary" style={{ marginLeft: 'auto' }}
+                onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : `Show ${visits.length}`}
+        </button>
+      </div>
+
+      {open && (
+        <Card bodyless>
+          {visits.map((v) => (
+            <div className="slot-row" key={v.id}>
+              <div className="slot-time">{dateOf(v.completed_at || v.created_at)}</div>
+              <div className="slot-main">
+                <div className="who">
+                  {/* The conclusion first. A date and a complaint are what the
+                      patient said; the diagnosis is what was decided, and that
+                      is what a doctor is scanning this list for. */}
+                  {v.diagnoses?.length
+                    ? v.diagnoses.map((d) => d.description).join(' · ')
+                    : 'No diagnosis recorded'}
+                </div>
+                <div className="why">
+                  {v.chief_complaint || 'No complaint recorded'}
+                  {v.doctor_name ? ` · ${v.doctor_name}` : ''}
+                </div>
+              </div>
+              <div className="slot-actions">
+                <button className="btn btn-sm btn-secondary"
+                        onClick={() => go('consultation', { encounterId: v.id })}>
+                  Open
+                </button>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  )
 }
 
 function Findings({ encounter, disabled, onSave }) {
@@ -705,14 +767,57 @@ function MedicinePicker({ onAdd }) {
   )
 }
 
+/**
+ * How far ahead a follow-up is usually set. §4's design principle is to keep
+ * the doctor off the keyboard, and "in two weeks" is a thought — turning it
+ * into a date is arithmetic the screen can do.
+ */
+const FOLLOWUP_IN = [
+  ['1 week',   7],
+  ['2 weeks',  14],
+  ['1 month',  30],
+  ['3 months', 90],
+  ['6 months', 182],
+]
+
 function CompleteVisit({ onComplete, onCancel }) {
   const [followup, setFollowup] = useState('')
   const [busy, setBusy] = useState(false)
+
+  const inDays = (days) => {
+    const d = new Date()
+    d.setDate(d.getDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
 
   return (
     <div>
       <div className="field">
         <label>Follow-up date (optional)</label>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {FOLLOWUP_IN.map(([label, days]) => {
+            const date = inDays(days)
+            const picked = followup === date
+            return (
+              <button
+                key={label}
+                type="button"
+                className={`btn btn-sm ${picked ? '' : 'btn-secondary'}`}
+                /* Tapping the chip that is already on clears it, so "actually,
+                   no follow-up" does not need a separate control. */
+                onClick={() => setFollowup(picked ? '' : date)}
+              >
+                {label}
+              </button>
+            )
+          })}
+          {followup && (
+            <button type="button" className="btn btn-sm btn-secondary"
+                    onClick={() => setFollowup('')}>
+              Clear
+            </button>
+          )}
+        </div>
         <input type="date" value={followup} onChange={(e) => setFollowup(e.target.value)}
                style={{ maxWidth: 220 }} />
       </div>
