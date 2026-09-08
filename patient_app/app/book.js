@@ -25,6 +25,11 @@ export default function Book() {
 
   const [doctors, setDoctors] = useState({ loading: !moving, rows: [] })
   const [search, setSearch] = useState('')
+  // §3: find a doctor by specialty and by location. Both lists come from the
+  // clinic's own doctors, so neither can offer a choice that matches nobody.
+  const [filters, setFilters] = useState({ specialties: [], locations: [] })
+  const [specialty, setSpecialty] = useState(null)
+  const [location, setLocation] = useState(null)
   const [doctor, setDoctor] = useState(
     moving && doctorId ? { id: Number(doctorId), doctor_name: String(doctorName || 'your doctor') } : null,
   )
@@ -45,10 +50,10 @@ export default function Book() {
   const chosenDay = days[dayOffset - 1] ?? days[0]
   const isoDay = chosenDay.toISOString().slice(0, 10)
 
-  const loadDoctors = useCallback(async (q = '') => {
+  const loadDoctors = useCallback(async (q = '', spec = null, loc = null) => {
     setDoctors({ loading: true, rows: [] })
     try {
-      const res = await api.bookableDoctors(q)
+      const res = await api.bookableDoctors(q, spec, loc)
       setDoctors({ loading: false, rows: res.data.doctors })
     } catch (err) {
       setDoctors({ loading: false, rows: [], error: err })
@@ -56,6 +61,32 @@ export default function Book() {
   }, [])
 
   useEffect(() => { if (!moving) loadDoctors() }, [loadDoctors, moving])
+
+  // Loaded once. A clinic does not gain a specialty while you are booking, and
+  // a failure here should cost you the filters, not the booking.
+  useEffect(() => {
+    if (moving) return
+    let alive = true
+    api.doctorFilters()
+      .then((res) => { if (alive) setFilters({
+        specialties: res.data.specialties || [],
+        locations: res.data.locations || [],
+      }) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [moving])
+
+  // Tapping the chip that is already on clears it — that is how you get back
+  // to "all doctors" without a separate Clear button.
+  function pickFilter(kind, value) {
+    const nextSpec = kind === 'specialty' ? (specialty === value ? null : value) : specialty
+    const nextLoc  = kind === 'location'  ? (location === value ? null : value)  : location
+    setSpecialty(nextSpec)
+    setLocation(nextLoc)
+    setDoctor(null)
+    setSlot(null)
+    loadDoctors(search, nextSpec, nextLoc)
+  }
 
   // Whenever the doctor or the day changes, the old slots are wrong.
   useEffect(() => {
@@ -99,7 +130,10 @@ export default function Book() {
               <View style={s.spread}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.itemName}>{doctor.doctor_name}</Text>
-                  <Text style={s.muted}>{doctor.specialty}</Text>
+                  <Text style={s.muted}>
+                    {doctor.specialty}
+                    {doctor.location ? ` · ${doctor.location}` : ''}
+                  </Text>
                 </View>
                 <Pressable onPress={() => { setDoctor(null); setSlot(null) }}>
                   <Text style={{ color: c.accent, fontWeight: '700', fontSize: 13.5 }}>Change</Text>
@@ -111,9 +145,22 @@ export default function Book() {
               <TextInput
                 style={s.input}
                 value={search}
-                onChangeText={(v) => { setSearch(v); loadDoctors(v) }}
-                placeholder="Search by name or specialty"
+                onChangeText={(v) => { setSearch(v); loadDoctors(v, specialty, location) }}
+                placeholder="Search by name, specialty or location"
                 autoCapitalize="none"
+              />
+
+              <FilterRow
+                label="Specialty"
+                options={filters.specialties}
+                chosen={specialty}
+                onPick={(v) => pickFilter('specialty', v)}
+              />
+              <FilterRow
+                label="Location"
+                options={filters.locations}
+                chosen={location}
+                onPick={(v) => pickFilter('location', v)}
               />
 
               {doctors.loading ? <Loading label="Finding doctors…" /> : doctors.rows.length === 0 ? (
@@ -124,6 +171,7 @@ export default function Book() {
                     <Text style={s.itemName}>{d.doctor_name}</Text>
                     <Text style={s.muted}>
                       {d.specialty}
+                      {d.location ? ` · ${d.location}` : ''}
                       {d.experience_years ? ` · ${d.experience_years} yrs` : ''}
                       {d.qualification ? ` · ${d.qualification}` : ''}
                     </Text>
@@ -252,5 +300,45 @@ export default function Book() {
         </>
       )}
     </ScrollView>
+  )
+}
+
+/**
+ * One row of filter chips — specialty or location.
+ *
+ * Renders nothing when the clinic has only one value to offer, or none: a
+ * filter with a single choice is a control that cannot change anything.
+ */
+function FilterRow({ label, options, chosen, onPick }) {
+  if (!options || options.length < 2) return null
+
+  return (
+    <>
+      <Text style={[s.label, { marginTop: 4 }]}>{label}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+        {options.map((option) => {
+          const picked = chosen === option
+          return (
+            <Pressable
+              key={option}
+              onPress={() => onPick(option)}
+              style={{
+                paddingVertical: 8, paddingHorizontal: 14, borderRadius: 999,
+                borderWidth: 1, marginRight: 8,
+                borderColor: picked ? c.accentDark : c.border,
+                backgroundColor: picked ? c.accentDark : c.surface,
+              }}
+            >
+              <Text style={{
+                fontSize: 13, fontWeight: '600',
+                color: picked ? '#fff' : c.ink,
+              }}>
+                {option}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </ScrollView>
+    </>
   )
 }

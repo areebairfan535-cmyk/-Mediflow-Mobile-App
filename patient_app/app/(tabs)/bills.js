@@ -1,21 +1,29 @@
 import { useCallback, useState } from 'react'
-import { Pressable, ScrollView, Text, View } from 'react-native'
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native'
 import { useFocusEffect } from 'expo-router'
+import * as WebBrowser from 'expo-web-browser'
 import { api } from '../../src/api'
 import {
   Badge, Card, EmptyState, ErrorBox, Loading, SectionTitle, c, s, dateOnly, money,
 } from '../../src/ui'
 
 /**
- * §3 billing: invoices, outstanding balance, payment history and refunds.
+ * §3 billing: invoices, outstanding balance, payment history and refunds —
+ * and §7's online payment.
  *
- * Paying inside the app needs a gateway, which §7 lists as a later
- * integration. Until one is wired up the screen says how to pay rather than
- * showing a button that cannot work.
+ * Paying happens at the gateway's own site, in a browser, because that is the
+ * only place a card should ever be typed. The app opens it, waits, and asks
+ * the server what actually happened; it never sees the card and never decides
+ * the amount.
+ *
+ * A clinic with no gateway configured gets the screen exactly as it was — the
+ * balance and where to pay it. The Pay button is absent rather than broken.
  */
 export default function Bills() {
   const [state, setState] = useState({ loading: true })
   const [open, setOpen] = useState(null)
+  const [gateway, setGateway] = useState(null)
+  const [paying, setPaying] = useState(null)
 
   const load = useCallback(async () => {
     setState((s) => ({ ...s, loading: !s.d }))
@@ -28,6 +36,61 @@ export default function Bills() {
   }, [])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
+
+  // Whether paying is possible at all. Its own call, and a failure here is
+  // swallowed: not knowing costs a button, while a thrown error would cost
+  // the whole bills screen.
+  useFocusEffect(useCallback(() => {
+    let alive = true
+    api.paymentStatus()
+      .then((res) => { if (alive) setGateway(res.data) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, []))
+
+  /**
+   * Open the gateway, then ask the server what happened.
+   *
+   * The browser closing proves nothing — a payer can close the tab after
+   * paying, or before. So the result never comes from the app's own reading of
+   * the redirect; it comes from confirming the reference with the server,
+   * which asks the gateway directly.
+   */
+  async function pay(invoice) {
+    if (paying) return
+    setPaying(invoice.id)
+    try {
+      const started = await api.startPayment(invoice.id)
+      const { approval_url: url, reference } = started.data
+
+      await WebBrowser.openAuthSessionAsync(url, 'mediflow://payment/return')
+
+      try {
+        const done = await api.confirmPayment(reference)
+        const paid = done.data?.payment
+        Alert.alert(
+          'Payment received',
+          paid?.receipt_no
+            ? `Receipt ${paid.receipt_no}. Your balance has been updated.`
+            : 'Your balance has been updated.',
+        )
+      } catch (err) {
+        // Cancelling is the ordinary case, not a fault — the order was never
+        // captured, so there is nothing to report and nothing was charged.
+        if (err.status === 503 || err.status === 409) {
+          Alert.alert('Payment not completed', err.message)
+        }
+      }
+
+      await load()
+    } catch (err) {
+      Alert.alert('Cannot start the payment', err.message)
+    } finally {
+      setPaying(null)
+    }
+  }
+
+  const canPay = Boolean(gateway?.configured)
 
   if (state.loading) return <Loading />
   if (state.error) {
@@ -56,10 +119,21 @@ export default function Bills() {
           {money(d.outstanding, d.currency)}
         </Text>
         {owing ? (
-          <Text style={s.muted}>Pay at the clinic reception, or call to arrange.</Text>
+          <Text style={s.muted}>
+            {canPay
+              ? 'Pay an invoice below, or at the clinic reception.'
+              : 'Pay at the clinic reception, or call to arrange.'}
+          </Text>
         ) : (
           <Text style={s.muted}>You have nothing to pay right now.</Text>
         )}
+        {/* Sandbox has to be unmistakable. Someone testing the app should
+            never be left wondering whether that was real money. */}
+        {canPay && gateway?.mode === 'sandbox' ? (
+          <Text style={{ color: c.warn, fontWeight: '700', fontSize: 12, marginTop: 6 }}>
+            TEST MODE — no real money moves
+          </Text>
+        ) : null}
       </Card>
 
       <SectionTitle>Invoices</SectionTitle>
@@ -105,6 +179,20 @@ export default function Bills() {
               </View>
 
               {open === i.id && <InvoiceLines id={i.id} />}
+
+              {canPay && Number(i.balance_due) > 0 ? (
+                <Pressable
+                  onPress={() => pay(i)}
+                  disabled={paying !== null}
+                  style={[s.btn, { marginTop: 12 }, paying !== null && s.btnDisabled]}
+                >
+                  <Text style={s.btnText}>
+                    {paying === i.id
+                      ? 'Opening…'
+                      : `Pay ${money(i.balance_due, i.currency_code)}`}
+                  </Text>
+                </Pressable>
+              ) : null}
 
               {/* Blue and bold: this is the only thing on the card that DOES
                   something when tapped, and in muted grey it read as a caption

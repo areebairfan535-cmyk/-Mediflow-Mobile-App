@@ -83,16 +83,9 @@ export default function Notifications() {
           and it keeps the list itself free of controls. */}
       <Stack.Screen
         options={{
-          // Pinned left, and pulled tight against the back arrow: the default
-          // gap between the two is wider than this short title needs.
-          headerTitleAlign: 'left',
-          headerTitle: () => (
-            <Text style={{
-              color: '#fff', fontSize: 18, fontWeight: '700', marginLeft: -18,
-            }}>
-              Notifications
-            </Text>
-          ),
+          // No height, alignment or title overrides here on purpose: the bar is
+          // left exactly as the tabs render theirs, so arriving from the bell
+          // does not shift the header the patient was just looking at.
           headerRight: () => (
             <Pressable onPress={() => setMenu(true)} hitSlop={12}
                        style={{ paddingHorizontal: 8, paddingVertical: 2 }}>

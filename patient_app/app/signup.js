@@ -9,21 +9,26 @@ import { c, s, ErrorBox } from '../src/ui'
 import { useKeyboardInset } from '../src/authui'
 
 /**
- * Creating the account (§3, §22).
+ * Attaching a login to a chart the clinic already holds (§3).
  *
- * Four fields in the order people expect to be asked: who you are, how we
- * reach you, a password, and the same password again. Nothing else — the
- * medical details are the clinic's to record, not this form's to collect.
+ * This form does not create a medical record — the clinic did that when the
+ * patient first walked in. It finds that record and puts a password on it.
  *
- * What happens after matters more than the form. POST /auth/register makes a
- * login; it does not make a medical record, because a record belongs to a
- * clinic and only the clinic can attach one. So the screen ends by saying,
- * plainly, that the account exists and what to hand the front desk — rather
- * than dropping someone into a dashboard with nothing behind it.
+ * Which is why it asks for the patient ID and the date of birth. The ID is
+ * printed on the patient's own prescriptions and invoices, so it is theirs to
+ * read off; asking for the date of birth as well means a stranger who guessed
+ * an ID still cannot open somebody else's history. Nothing else medical is
+ * collected here.
+ *
+ * A successful claim comes back with the clinic attached, so it goes straight
+ * into the tabs on the tokens it already has. If the details do not match, the
+ * screen says how to get the account made the other way — at the front desk.
  */
 export default function SignUp() {
   const router = useRouter()
 
+  const [mrn, setMrn] = useState('')
+  const [dob, setDob] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -39,19 +44,35 @@ export default function SignUp() {
   // compare; flagging a mismatch on the first keystroke is just noise.
   const mismatch = confirm !== '' && confirm !== password
   const tooShort = password !== '' && password.length < 8
+  // The server is the authority on the date; this only stops the obvious
+  // typo reaching it as a 422.
+  const badDate = dob !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(dob.trim())
   const ready =
-    name.trim() !== '' && email.trim() !== '' &&
-    password.length >= 8 && confirm === password
+    mrn.trim() !== '' && !badDate && dob.trim() !== '' &&
+    email.trim() !== '' && password.length >= 8 && confirm === password
 
   async function submit() {
     if (!ready || busy) return
     setBusy(true)
     setError(null)
     try {
-      await api.register(name.trim(), email.trim(), password)
-      // The tokens that came back belong to an account with no chart behind it
-      // yet. Keeping them would only let the tabs fail; drop them and let the
-      // person log in once the clinic has linked the record.
+      const res = await api.claimChart(
+        mrn.trim(), dob.trim(), name.trim() || undefined, email.trim(), password,
+      )
+      const orgs = res.data.organizations || []
+
+      // The claim attached the clinic, so the tokens that came back are worth
+      // keeping: signing up and then being sent to the login screen to type
+      // the same password again is a step that earns nothing.
+      if (orgs.length > 0) {
+        await auth.save(res.data.auth)
+        await auth.saveOrg(orgs[0].organization_id)
+        router.replace('/(tabs)')
+        return
+      }
+
+      // Should not happen — a claim that succeeds has a clinic by definition.
+      // If it ever does, tokens would only let the tabs fail.
       await auth.clear()
       setDone(email.trim())
     } catch (err) {
@@ -144,10 +165,40 @@ export default function SignUp() {
           {/* No heading: the button at the foot already says what this is, and
               saying it twice on one short form only pushed the fields down. */}
           <Text style={[s.muted, { marginBottom: 8 }]}>
-            Takes a minute. Four things.
+            Your clinic already has your record. This puts a password on it.
           </Text>
 
           <ErrorBox error={error} />
+
+          <Text style={s.label}>Patient ID</Text>
+          <TextInput
+            style={s.input}
+            value={mrn}
+            onChangeText={setMrn}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            placeholder="On your prescription or invoice"
+            placeholderTextColor={c.muted}
+            returnKeyType="next"
+          />
+
+          <Text style={s.label}>Date of birth</Text>
+          <TextInput
+            style={[s.input, badDate && { borderColor: c.danger }]}
+            value={dob}
+            onChangeText={setDob}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="numbers-and-punctuation"
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={c.muted}
+            returnKeyType="next"
+          />
+          {badDate && (
+            <Text style={{ color: c.danger, fontSize: 12.5, marginTop: 4 }}>
+              Write it as YYYY-MM-DD, for example 1994-03-21.
+            </Text>
+          )}
 
           <Text style={s.label}>Full name</Text>
           <TextInput
@@ -155,7 +206,7 @@ export default function SignUp() {
             value={name}
             onChangeText={setName}
             autoCapitalize="words"
-            placeholder="Ayesha Khan"
+            placeholder="As the clinic has it (optional)"
             placeholderTextColor={c.muted}
             returnKeyType="next"
           />
@@ -243,8 +294,8 @@ export default function SignUp() {
 
         <View style={{ marginTop: 20, alignItems: 'center', paddingHorizontal: 10 }}>
           <Text style={{ color: '#bcd9e8', fontSize: 12.5, textAlign: 'center', lineHeight: 19 }}>
-            Your clinic links this account to your medical record. Nothing
-            medical is asked for here.
+            Cannot find your patient ID? The front desk can set the account up
+            for you instead.
           </Text>
         </View>
       </ScrollView>
