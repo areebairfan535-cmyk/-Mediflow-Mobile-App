@@ -211,6 +211,13 @@ export const api = {
   createCountry: (body) => request('/platform/countries', { method: 'POST', body }),
   updateCountry: (id, body) => request(`/platform/countries/${id}`, { method: 'PUT', body }),
 
+  // ---- platform: the deployment's own settings (§21) ----
+  // The form is built from what this returns, so a new setting on the server
+  // appears on the screen without a change here.
+  platformSettings: () => request('/platform/settings'),
+  savePlatformSettings: (settings) =>
+    request('/platform/settings', { method: 'PUT', body: { settings } }),
+
   // ---- subscription & plans (§22) ----
   plans: () => request('/plans'),
   subscription: () => request('/organizations/current/subscription'),

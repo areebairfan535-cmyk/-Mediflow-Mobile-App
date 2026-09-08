@@ -93,14 +93,38 @@ export default function Platform() {
               hint={`${dash.counts.total_organizations} total`}
             />
             <Stat label="Active users" value={dash.counts.active_users} />
-            <Stat label="Doctors" value={dash.counts.doctors} />
-            <Stat label="Patients" value={dash.counts.patients} hint="Phase 2" />
+            <Stat
+              label="Active doctors"
+              value={dash.counts.doctors}
+              hint={dash.counts.doctors_total > dash.counts.doctors
+                ? `${dash.counts.doctors_total} on record`
+                : undefined}
+            />
+            <Stat label="Active patients" value={dash.counts.patients} />
           </div>
 
+          {/* §21 asks for the appointment, invoice and claim record here. The
+              API had already counted all three; only the panel was missing
+              them, so an admin had to open three other pages to learn the size
+              of the thing they were running. */}
           <div className="stat-grid">
-            <Stat label="Billed" value={dash.money.billed_total} money hint="Phase 3" />
-            <Stat label="Collected" value={dash.money.collected_total} money hint="Phase 3" />
-            <Stat label="Outstanding" value={dash.money.outstanding_total} money hint="Phase 3" />
+            <Stat label="Appointments" value={dash.counts.appointments} hint="all time" />
+            <Stat label="Invoices" value={dash.counts.invoices} hint="all time" />
+            <Stat
+              label="Claims"
+              value={dash.counts.claims}
+              hint={dash.counts.claims > 0 ? 'insurance' : 'none filed'}
+            />
+          </div>
+
+          {/* The "Phase 2"/"Phase 3" hints that used to sit on these are gone:
+              those phases shipped, and a finished panel that still labels its
+              own numbers as forthcoming reads as unfinished. */}
+          <div className="stat-grid">
+            <Stat label="Billed" value={dash.money.billed_total} money />
+            <Stat label="Collected" value={dash.money.collected_total} money />
+            <Stat label="Outstanding" value={dash.money.outstanding_total} money
+                  hint={Number(dash.money.outstanding_total) > 0 ? 'still owed' : 'nothing owed'} />
             <Stat
               label="Failed payments"
               value={dash.failed_payments}
