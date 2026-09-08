@@ -188,6 +188,45 @@ $roles = [
             'ai.draft_note', 'ai.suggest_billing',
         ],
     ],
+    /**
+     * A doctor who is also the front desk.
+     *
+     * §26's MVP walkthrough is one clinician start to finish: consult,
+     * prescribe, invoice, take the payment, hand over the receipt. A great many
+     * practices are exactly that — one dentist, no reception — and for them the
+     * plain `doctor` role stops halfway, at an invoice nobody is there to issue.
+     *
+     * It is a separate role rather than two more permissions on `doctor`
+     * because system roles are shared by every clinic on the deployment. §7
+     * keeps the person who decides what to charge apart from the person who
+     * takes the money, and a clinic that has both people should keep that.
+     * This role is the deliberate exception, chosen per member, not the
+     * default quietly changing underneath everyone.
+     */
+    'solo_practitioner' => [
+        'name'        => 'Doctor (solo practice)',
+        'description' => 'Consults and also bills: issues invoices and takes payment.',
+        'permissions' => [
+            'patient.view', 'patient.create', 'patient.update',
+            'appointment.view', 'appointment.create', 'appointment.update', 'appointment.cancel',
+            'encounter.view', 'encounter.create', 'encounter.update',
+            'diagnosis.manage',
+            'prescription.view', 'prescription.create',
+            'lab.view', 'lab.create',
+            'procedure.manage',
+            'document.view', 'document.upload',
+            'schedule.manage',
+            // The half the plain doctor role stops short of.
+            'service.view',
+            'invoice.view', 'invoice.create', 'invoice.issue',
+            'payment.view', 'payment.create',
+            // Refunds are still not here. Giving money back is the one billing
+            // act §7 insists two people touch, and a solo practice is exactly
+            // where that check matters most.
+            'policy.view', 'claim.view',
+            'ai.draft_note', 'ai.suggest_billing',
+        ],
+    ],
     'nurse' => [
         'name'        => 'Nurse',
         'description' => 'Assists with patients, vitals and lab logistics.',
@@ -449,7 +488,19 @@ $addMember = static function (int $orgId, array $user, string $roleSlug, string 
         ['org' => $orgId, 'uid' => (int) $user['id']],
     );
     if ($existing !== null) {
-        echo "  exists  {$user['email']} in org\n";
+        // Re-running the seeder must be able to move somebody to a different
+        // role. It could not before, so a demo database seeded once kept the
+        // old roles for ever and every later change here did nothing.
+        $wanted = $roleId($roleSlug);
+        Database::statement(
+            'UPDATE organization_users SET role_id = :role, job_title = :title, updated_at = :now
+              WHERE id = :id AND role_id <> :role2',
+            [
+                'role' => $wanted, 'role2' => $wanted, 'title' => $title,
+                'now' => now(), 'id' => (int) $existing['id'],
+            ],
+        );
+        echo "  exists  {$user['email']} in org (role: $roleSlug)\n";
         return;
     }
     Database::statement(
@@ -465,28 +516,41 @@ $addMember = static function (int $orgId, array $user, string $roleSlug, string 
 };
 
 $addMember($orgId, $owner,        'org_owner',     'Owner / Principal Dentist');
-$addMember($orgId, $doctor,       'doctor',        'Consultant');
+// The demo doctor runs the whole §26 walkthrough on his own — consult through
+// to receipt — so he gets the solo-practice role. Dr. Ayesha above keeps the
+// plain `doctor` role, which is what a clinic with a front desk uses.
+$addMember($orgId, $doctor,       'solo_practitioner', 'Consultant');
 $addMember($orgId, $receptionist, 'receptionist',  'Front Desk');
 $addMember($orgId, $billing,      'billing_staff', 'Billing & Claims');
 
-// Doctor rows for the two clinicians
-foreach ([[$owner, 'Endodontist', 'BDS, MDS', 10, 2500], [$doctor, 'General Dentist', 'BDS', 6, 1500]] as
-         [$user, $specialty, $qualification, $years, $fee]) {
+// Doctor rows for the two clinicians. The two sit at different sites, so the
+// patient app's location filter has something to filter by (§3).
+foreach ([
+    [$owner,  'Endodontist',     'BDS, MDS', 10, 2500, 'Main Clinic'],
+    [$doctor, 'General Dentist', 'BDS',       6, 1500, 'Gulberg Branch'],
+] as [$user, $specialty, $qualification, $years, $fee, $location]) {
     $exists = Database::selectOne(
         'SELECT id FROM doctors WHERE organization_id = :org AND user_id = :uid',
         ['org' => $orgId, 'uid' => (int) $user['id']],
     );
     if ($exists !== null) {
+        // An earlier seed created this doctor before locations existed.
+        Database::statement(
+            'UPDATE doctors SET location = :loc, updated_at = :now
+              WHERE id = :id AND location IS NULL',
+            ['loc' => $location, 'now' => now(), 'id' => (int) $exists['id']],
+        );
         continue;
     }
     Database::statement(
         'INSERT INTO doctors
-            (organization_id, user_id, specialty, qualification, experience_years,
+            (organization_id, user_id, specialty, location, qualification, experience_years,
              consultation_fee, slot_minutes, is_accepting, created_at, updated_at)
-         VALUES (:org, :uid, :spec, :qual, :years, :fee, 15, 1, :now, :now)',
+         VALUES (:org, :uid, :spec, :loc, :qual, :years, :fee, 15, 1, :now, :now)',
         [
             'org' => $orgId, 'uid' => (int) $user['id'], 'spec' => $specialty,
-            'qual' => $qualification, 'years' => $years, 'fee' => $fee, 'now' => now(),
+            'loc' => $location, 'qual' => $qualification, 'years' => $years,
+            'fee' => $fee, 'now' => now(),
         ],
     );
     echo "  doctor  {$user['name']} — $specialty\n";

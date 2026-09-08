@@ -48,3 +48,6 @@ yarn-error.*
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+
+# Test artefacts written by the smoke suites, which run from backend/database
+backend/database/*.pdf
