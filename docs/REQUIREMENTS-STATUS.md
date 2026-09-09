@@ -3,7 +3,7 @@
 Har requirement jo aap ne bheji, uska status. Har nayi requirement ke baad
 yeh file update hoti hai.
 
-**Aakhri update:** 9 September 2026 (26 requirements, 1003 tests green)
+**Aakhri update:** 9 September 2026 (26 requirements, 1036 tests green)
 
 ---
 
@@ -13,9 +13,15 @@ yeh file update hoti hai.
 |---|---|
 | Requirements bheji gayin | **26** |
 | Poori ho chukin | **26** |
-| Test suites | **23** (ab repo mein: `backend/database/`) |
-| Kul tests | **1003 — sab green** |
-| GitHub par | sab kuch push ho chuka |
+| Test suites | **25** (ab repo mein: `backend/database/`) |
+| Kul tests | **1036 — sab green** |
+| Teeno app chal kar dekhi gayin | ✅ clinic 5174, admin 5173, patient 8082 |
+| GitHub par | **5 commits abhi nahi gaye** — folder mein sab hai, online purana hai |
+
+Aakhri wali line pehle "sab kuch push ho chuka" kehti thi. Woh sach tha jab
+likhi gayi, aur baad mein sach nahi raha — kaam hota raha aur push roka gaya.
+Aisi line sab se khatarnaak hoti hai: ghalat honay par bhi ittminaan deti
+hai. Push hote hi yeh badal deni hai.
 
 ---
 
