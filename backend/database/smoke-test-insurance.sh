@@ -54,11 +54,36 @@ jmoney() { printf '%s' "$1" | grep -o "\"$2\":\"[0-9.-]*\"" | head -1 | sed "s/.
 coverage_of() { printf '%s' "$1" | grep -o '"coverage":{[^}]*}'; }
 
 reset_limits
-reset_policies
 
 echo
 echo "MediFlow Phase 5 — insurance smoke test"
 echo "======================================"
+
+# ---------------------------------------------------------------
+echo
+echo "[0] What the last run left behind (sec 8)"
+
+# Read BEFORE reset_policies(), and that ordering is the whole point: the
+# counter is zeroed at startup, so a slipped one is only ever visible in the
+# moment between the previous run finishing and this one tidying up. Asserted
+# after the reset these two could never fire — every policy in the database
+# belongs to the clinic that gets zeroed, so they would be three lines of
+# decoration.
+insurance_bound() {
+  N=$(sql "$2" | tr -d '\r')
+  [ "${N:-x}" = "0" ] && pass "$1" || fail "$1 — $N row(s)"
+}
+
+# GREATEST(coverage_used + :delta, 0) exists to stop a double release driving
+# this negative, which would quietly hand the patient extra cover.
+insurance_bound "no policy was left having spent negative cover" \
+  "SELECT COUNT(*) FROM insurance_policies WHERE coverage_used < 0"
+
+insurance_bound "no policy was left past its ceiling" \
+  "SELECT COUNT(*) FROM insurance_policies
+    WHERE coverage_amount IS NOT NULL AND coverage_used > coverage_amount"
+
+reset_policies
 
 # ---------------------------------------------------------------
 echo
@@ -383,6 +408,23 @@ esac
 
 R=$(api GET '/audit-logs?resource_type=insurance_policy' '' "${OAUTH[@]}")
 expect "policy trail readable" "$(status_of "$R")" "200"
+
+# ---------------------------------------------------------------
+echo
+echo "[10] Cover cannot go somewhere it should not (sec 8)"
+
+# The reserve-and-release figures above are exact, and checked on the one
+# policy this suite drives. This one is checked on every claim ever written.
+#
+# Deliberately NOT here: coverage_used recomputed from the claims beneath it.
+# reset_policies() zeroes the counter and leaves the historical claims
+# standing, so that sum cannot balance and a test asserting it would fail for
+# a reason that is not a defect. The two bounds that CAN slip are asserted at
+# the top of this file instead, before the reset wipes the evidence.
+#
+# Claims are never reset, so this one reads real history.
+insurance_bound "no insurer approved more than was claimed" \
+  "SELECT COUNT(*) FROM claims WHERE approved_amount > claimed_amount"
 
 # ---------------------------------------------------------------
 echo
