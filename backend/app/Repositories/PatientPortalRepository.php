@@ -212,11 +212,29 @@ final class PatientPortalRepository extends Repository
     // Choosing a doctor (§3)
     // ---------------------------------------------------------------
 
-    /** @return list<array<string,mixed>> */
+    /**
+     * How recently a doctor must have used the system to count as online.
+     *
+     * Every authenticated request touches auth_tokens.last_used_at, so this is
+     * "did anything happen from their account just now" rather than a status
+     * they remembered to set. A doctor reading a chart is online; one who set
+     * a toggle on Monday and went on leave is not.
+     *
+     * Ten minutes, not one: a clinician reading a long note or talking to a
+     * patient is not making requests, and blinking offline mid-consultation
+     * would be wrong.
+     */
+    private const ONLINE_WINDOW_MINUTES = 10;
+
+    /**
+     * @param bool $onlineOnly keep only doctors who are at their desk right now
+     * @return list<array<string,mixed>>
+     */
     public function bookableDoctors(
         ?string $search = null,
         ?string $specialty = null,
         ?string $location = null,
+        bool $onlineOnly = false,
     ): array {
         $where    = ['d.organization_id = :org', 'd.is_accepting = 1'];
         $bindings = ['org' => $this->scopeBinding()];
@@ -237,14 +255,40 @@ final class PatientPortalRepository extends Repository
             $bindings['loc'] = trim($location);
         }
 
+        // Presence comes from token activity, which every request already
+        // updates — so there is no status for anyone to forget to change, and
+        // no new table. A token that was revoked (signed out) or has expired
+        // does not count, which is what makes signing out mean something.
+        // COALESCE to created_at because a token is issued at sign-in and only
+        // stamped with last_used_at on the NEXT request. Without it a doctor
+        // who has just signed in and not yet clicked anything reads as offline,
+        // which is the one moment they are most certainly at their desk.
+        $window = (int) self::ONLINE_WINDOW_MINUTES;
+        $online = "EXISTS (
+                    SELECT 1 FROM auth_tokens t
+                     WHERE t.user_id = d.user_id
+                       AND t.revoked_at IS NULL
+                       AND (t.expires_at IS NULL OR t.expires_at > UTC_TIMESTAMP())
+                       AND COALESCE(t.last_used_at, t.created_at)
+                             > DATE_SUB(UTC_TIMESTAMP(), INTERVAL $window MINUTE)
+                  )";
+
+        if ($onlineOnly) {
+            $where[] = $online;
+        }
+
         return $this->query(
             'SELECT d.id, u.name AS doctor_name, d.specialty, d.location,
                     d.qualification, d.experience_years, d.consultation_fee,
-                    d.followup_fee, d.room, d.slot_minutes, d.bio
+                    d.followup_fee, d.room, d.slot_minutes, d.bio,
+                    ' . $online . ' AS is_online,
+                    (SELECT MAX(t2.last_used_at) FROM auth_tokens t2
+                      WHERE t2.user_id = d.user_id AND t2.revoked_at IS NULL) AS last_seen_at
                FROM doctors d
                JOIN users u ON u.id = d.user_id
               WHERE ' . implode(' AND ', $where) . '
-              ORDER BY d.specialty, u.name',
+              -- Whoever is at their desk first, then the usual order.
+              ORDER BY is_online DESC, d.specialty, u.name',
             $bindings,
         );
     }

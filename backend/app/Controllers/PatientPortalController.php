@@ -76,14 +76,32 @@ final class PatientPortalController extends Controller
             'search'    => 'nullable|string|max:120',
             'specialty' => 'nullable|string|max:120',
             'location'  => 'nullable|string|max:120',
+            // ?online=1 keeps only the doctors who are at their desk now.
+            'online'    => 'nullable|boolean',
         ]);
 
+        $onlineOnly = filter_var($q['online'] ?? false, FILTER_VALIDATE_BOOL);
+
+        $doctors = PatientPortalService::for($request)->bookableDoctors(
+            $q['search'] ?? null,
+            $q['specialty'] ?? null,
+            $q['location'] ?? null,
+            $onlineOnly,
+        );
+
+        // Every doctor carries is_online whether or not the list was filtered,
+        // so the app can show a presence dot without asking twice.
+        //
+        // The filter is deliberately NOT the default. Booking is mostly for
+        // later in the week, and a patient opening the app at ten at night
+        // would otherwise find an empty list and no way to book Tuesday.
         $this->ok([
-            'doctors' => PatientPortalService::for($request)->bookableDoctors(
-                $q['search'] ?? null,
-                $q['specialty'] ?? null,
-                $q['location'] ?? null,
-            ),
+            'doctors'      => $doctors,
+            'online_only'  => $onlineOnly,
+            'online_count' => count(array_filter(
+                $doctors,
+                static fn (array $d): bool => (int) ($d['is_online'] ?? 0) === 1,
+            )),
         ]);
     }
 

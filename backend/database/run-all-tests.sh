@@ -55,6 +55,7 @@ else
         test-localization.sh
         test-files.sh
         test-onboarding.sh
+        test-presence.sh
     )
 fi
 

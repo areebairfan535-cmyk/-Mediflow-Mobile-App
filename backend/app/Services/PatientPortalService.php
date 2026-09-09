@@ -230,8 +230,9 @@ final class PatientPortalService extends Service
         ?string $search = null,
         ?string $specialty = null,
         ?string $location = null,
+        bool $onlineOnly = false,
     ): array {
-        return $this->portal()->bookableDoctors($search, $specialty, $location);
+        return $this->portal()->bookableDoctors($search, $specialty, $location, $onlineOnly);
     }
 
     /**
