@@ -192,6 +192,49 @@ final class OrganizationController extends Controller
         $this->ok(['member' => $membership]);
     }
 
+    /**
+     * One member's employment record (§20).
+     *
+     * Separate from their membership on purpose: that row says what they may
+     * do, this one says who they are to the clinic — employee number,
+     * department, when they started. A promotion changes the first and leaves
+     * the second alone.
+     */
+    public function staffProfile(Request $request): never
+    {
+        $profile = (new RbacService())->staffProfile(
+            (int) $request->organizationId(),
+            $request->intParam('userId'),
+        );
+
+        $this->ok(['staff' => $profile]);
+    }
+
+    public function updateStaffProfile(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'employee_no' => 'nullable|string|max:32',
+            'department'  => 'nullable|string|max:120',
+            'designation' => 'nullable|string|max:120',
+            'hired_at'    => 'nullable|date',
+        ]);
+
+        $userId = $request->intParam('userId');
+        $before = (new RbacService())->staffProfile((int) $request->organizationId(), $userId);
+
+        $profile = (new RbacService())->setStaffProfile(
+            (int) $request->organizationId(),
+            $userId,
+            $data,
+        );
+
+        (new AuditService())->logUpdate(
+            $request, 'staff', $userId, $before ?? [], $profile,
+        );
+
+        $this->ok(['staff' => $profile]);
+    }
+
     public function changeMemberStatus(Request $request): never
     {
         $data = $this->validate($request, [

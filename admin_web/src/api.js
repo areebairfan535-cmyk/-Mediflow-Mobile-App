@@ -183,6 +183,15 @@ export const api = {
       body: { status },
     }),
 
+  // §20: the employment record behind a membership — employee number,
+  // department, designation, start date. Separate from the role, which is
+  // access: a promotion changes the role and leaves this alone.
+  saveStaffProfile: (userId, payload) =>
+    request(`/organizations/current/members/${userId}/staff`, {
+      method: 'PUT',
+      body: payload,
+    }),
+
   auditLogs: (params = {}) => {
     const qs = new URLSearchParams(
       Object.entries(params).filter(([, v]) => v !== '' && v != null),

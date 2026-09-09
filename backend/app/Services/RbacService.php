@@ -146,11 +146,73 @@ final class RbacService
         }
 
         $this->memberships()->remove($organizationId, $userId);
+
+        // The employment record goes with the membership. Keeping it would
+        // leave an employee number attached to somebody the clinic no longer
+        // has, and the next person to get that number would collide with it.
+        $this->staff()->remove($organizationId, $userId);
+    }
+
+    // ---------------- employment records (§20) ----------------
+
+    /**
+     * One member's employment details.
+     *
+     * Null when the clinic has not recorded any — which is normal, not an
+     * error. Plenty of small practices never fill this in.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function staffProfile(int $organizationId, int $userId): ?array
+    {
+        $this->requireMember($organizationId, $userId);
+
+        return $this->staff()->forMember($organizationId, $userId);
+    }
+
+    /**
+     * Record or update what the clinic knows about somebody's employment.
+     *
+     * @param array<string,mixed> $data employee_no, department, designation, hired_at
+     * @return array<string,mixed>
+     */
+    public function setStaffProfile(int $organizationId, int $userId, array $data): array
+    {
+        $this->requireMember($organizationId, $userId);
+
+        $employeeNo = trim((string) ($data['employee_no'] ?? ''));
+        if ($employeeNo !== '' && $this->staff()->employeeNoTaken($organizationId, $employeeNo, $userId)) {
+            throw new ConflictException(
+                "Employee number $employeeNo already belongs to somebody else here."
+            );
+        }
+
+        return $this->staff()->put($organizationId, $userId, [
+            'employee_no' => $employeeNo === '' ? null : $employeeNo,
+            'department'  => $data['department']  ?? null,
+            'designation' => $data['designation'] ?? null,
+            'hired_at'    => $data['hired_at']    ?? null,
+        ]);
+    }
+
+    /**
+     * An employment record only means anything for somebody who works here.
+     */
+    private function requireMember(int $organizationId, int $userId): void
+    {
+        if ($this->membership($userId, $organizationId) === null) {
+            throw new NotFoundException('This user is not a member of the organization');
+        }
     }
 
     private function memberships(): \App\Repositories\MembershipRepository
     {
         return new \App\Repositories\MembershipRepository();
+    }
+
+    private function staff(): \App\Repositories\StaffRepository
+    {
+        return new \App\Repositories\StaffRepository();
     }
 
     private function countByRoleSlug(int $organizationId, string $roleSlug): int

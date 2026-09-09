@@ -124,6 +124,14 @@ $router->group('/api/v1', [], function ($router): void {
                 ['perm:member.update']);
             $router->put('/members/{userId}/status', [OrganizationController::class, 'changeMemberStatus'],
                 ['perm:member.update']);
+
+            // §20: the employment record behind a membership — employee
+            // number, department, start date. Readable by anyone who can see
+            // the team; writable only by whoever may change a member.
+            $router->get('/members/{userId}/staff', [OrganizationController::class, 'staffProfile'],
+                ['perm:member.view']);
+            $router->put('/members/{userId}/staff', [OrganizationController::class, 'updateStaffProfile'],
+                ['perm:member.update']);
             $router->delete('/members/{userId}', [OrganizationController::class, 'removeMember'],
                 ['perm:member.delete']);
 
