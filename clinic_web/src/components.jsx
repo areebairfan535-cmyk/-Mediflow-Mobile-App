@@ -48,6 +48,19 @@ export function Badge({ children, tone }) {
   return <span className={`badge badge-${resolved}`}>{children}</span>
 }
 
+/**
+ * How an appointment happens, shown only when it is not the ordinary case.
+ *
+ * On a list of times a teleconsult reads exactly like a walk-in, and the
+ * difference is whether anyone is expected in the building.
+ */
+export function AppointmentType({ type }) {
+  if (!type || type === 'consultation') return null
+  if (type === 'teleconsult') return <Badge tone="accent">online</Badge>
+
+  return <Badge>{type.replace(/_/g, ' ')}</Badge>
+}
+
 export function Loading({ label = 'Loading…' }) {
   return (
     <div className="loading">

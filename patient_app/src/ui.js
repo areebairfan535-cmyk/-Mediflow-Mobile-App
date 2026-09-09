@@ -46,6 +46,21 @@ export function Badge({ children, tone }) {
   )
 }
 
+/**
+ * How an appointment happens, shown only when it is not the ordinary case.
+ *
+ * `teleconsult` is the one that has to be said out loud: it has no room to
+ * walk into, and an online visit that looks like every other card is how
+ * somebody travels to the clinic for a video call. The API has always sent
+ * `type` — this is what reads it.
+ */
+export function AppointmentType({ type }) {
+  if (!type || type === 'consultation') return null
+  if (type === 'teleconsult') return <Badge tone="accent">online</Badge>
+
+  return <Badge>{type}</Badge>
+}
+
 export function Card({ children, style }) {
   return <View style={[s.card, style]}>{children}</View>
 }

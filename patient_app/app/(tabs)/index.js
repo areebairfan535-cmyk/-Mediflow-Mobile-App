@@ -5,13 +5,14 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router'
 import { api } from '../../src/api'
 import {
-  Badge, Card, EmptyState, ErrorBox, Loading, SectionTitle,
+  AppointmentType, Badge, Card, EmptyState, ErrorBox, Loading, SectionTitle,
   c, s, when, dateOnly, money,
 } from '../../src/ui'
 
 /**
- * §3 dashboard: upcoming appointments, outstanding bills, recent
- * prescriptions, medical alerts and treatment reminders.
+ * §3 dashboard: medical alerts, outstanding bills, the health summary,
+ * upcoming appointments, treatment reminders and recent prescriptions —
+ * in that order, which is the order they matter in.
  *
  * One API call fills the whole screen — a phone on a weak connection should
  * not make six round trips to draw a home page.
@@ -164,21 +165,32 @@ export default function Home() {
 
       <SectionTitle>Upcoming appointments</SectionTitle>
       {d.upcoming_appointments.length === 0 ? (
-        <Card><EmptyState icon="📅" title="Nothing booked"
-                          hint="Call the clinic to arrange a visit." /></Card>
+        <Card>
+          {/* The app books for itself (§3). Telling the patient to phone the
+              clinic was true before that landed, and sends them away from the
+              screen that can do it. */}
+          <EmptyState icon="📅" title="Nothing booked" />
+          <Pressable onPress={() => router.push('/book')} style={s.btn}>
+            <Text style={s.btnText}>Book an appointment</Text>
+          </Pressable>
+        </Card>
       ) : (
         d.upcoming_appointments.map((a) => (
           <Card key={a.id}>
             <View style={s.spread}>
               <Text style={s.h2}>{when(a.scheduled_at)}</Text>
-              <Badge>{a.status}</Badge>
+              <View style={s.row}>
+                <AppointmentType type={a.type} />
+                <Badge>{a.status}</Badge>
+              </View>
             </View>
             <Text style={[s.body, { marginTop: 5 }]}>
               <Text style={{ fontWeight: "700", color: c.ink }}>{a.doctor_name}</Text>
               {" · "}{a.specialty}
             </Text>
             {a.reason ? <Text style={s.muted}>{a.reason}</Text> : null}
-            {a.room ? <Text style={s.muted}>Room {a.room}</Text> : null}
+            {a.room && a.type !== 'teleconsult'
+              ? <Text style={s.muted}>Room {a.room}</Text> : null}
           </Card>
         ))
       )}

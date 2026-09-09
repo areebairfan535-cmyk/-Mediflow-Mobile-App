@@ -3,7 +3,7 @@ import { Alert, Platform, Pressable, ScrollView, Text, View } from 'react-native
 import { useFocusEffect, useRouter } from 'expo-router'
 import { api } from '../../src/api'
 import {
-  Badge, Card, EmptyState, ErrorBox, Loading, c, s, when,
+  AppointmentType, Badge, Card, EmptyState, ErrorBox, Loading, c, s, when,
 } from '../../src/ui'
 
 const CANCELLABLE = ['booked', 'confirmed']
@@ -28,8 +28,9 @@ export default function Appointments() {
   useFocusEffect(useCallback(() => { load() }, [load]))
 
   /**
-   * Cancelling is the only change a patient may make. Confirm first — an
-   * accidental tap here costs someone their slot.
+   * Cancelling and rescheduling are the two changes a patient may make, and
+   * this is the one that cannot be undone. Confirm first — an accidental tap
+   * here costs someone their slot.
    */
   function confirmCancel(appointment) {
     const run = async (reason) => {
@@ -116,7 +117,10 @@ export default function Appointments() {
           <Card key={a.id}>
             <View style={s.spread}>
               <Text style={s.h2}>{when(a.scheduled_at)}</Text>
-              <Badge>{a.status}</Badge>
+              <View style={s.row}>
+                <AppointmentType type={a.type} />
+                <Badge>{a.status}</Badge>
+              </View>
             </View>
 
             <Text style={[s.body, { marginTop: 6 }]}>
@@ -124,7 +128,9 @@ export default function Appointments() {
               {" · "}{a.specialty}
             </Text>
             {a.reason ? <Text style={s.muted}>{a.reason}</Text> : null}
-            {a.room ? <Text style={s.muted}>Room {a.room}</Text> : null}
+            {/* A room number on an online visit would send the patient to it. */}
+            {a.room && a.type !== 'teleconsult'
+              ? <Text style={s.muted}>Room {a.room}</Text> : null}
             {a.cancelled_reason ? (
               <Text style={[s.muted, { color: c.danger }]}>{a.cancelled_reason}</Text>
             ) : null}

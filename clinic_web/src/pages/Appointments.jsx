@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api.js'
 import {
-  Card, Badge, Loading, Empty, ErrorBox, Modal, timeOf, todayISO,
+  AppointmentType, Card, Badge, Loading, Empty, ErrorBox, Modal, timeOf, todayISO,
 } from '../components.jsx'
 
 export default function Appointments({ session, go }) {
@@ -94,6 +94,7 @@ export default function Appointments({ session, go }) {
                     {a.reason ? ` · ${a.reason}` : ''}
                   </div>
                 </div>
+                <AppointmentType type={a.type} />
                 <Badge>{a.status.replace(/_/g, ' ')}</Badge>
                 <div className="slot-actions">
                   {a.status === 'booked' && (
