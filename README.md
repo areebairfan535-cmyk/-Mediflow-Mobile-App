@@ -587,12 +587,18 @@ rule it protects.
 | Audit trail | Append-only, with old/new values on changes |
 | Secret leakage | Passwords and tokens redacted before an audit row is written |
 | Error disclosure | Stack traces logged, never returned when `APP_DEBUG=false` |
-| Headers | `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` |
+| Headers | `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Content-Security-Policy`; HSTS when the request arrived over TLS |
+| Version disclosure | `X-Powered-By` removed |
+| Backup / restore | `database/backup.php`, `database/restore.php` — database plus uploaded files; restore dry-runs by default |
 
 **Compliance:** the schema and controls are built *for* HIPAA/GDPR-style
 requirements (§18), but per §18 no compliance claim should be made without the
-audit, contracts and controls to back it. HTTPS termination, encryption at
-rest, backups and DR are deployment concerns, not yet configured.
+audit, contracts and controls to back it.
+
+Backup and restore ship as scripts, and the restore has been rehearsed against
+a scratch database rather than assumed to work. *Scheduling* them, TLS
+termination and encryption at rest remain deployment concerns — a script
+nobody runs on a timer is not a backup policy.
 
 ---
 
