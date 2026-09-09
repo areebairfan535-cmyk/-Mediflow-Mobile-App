@@ -30,9 +30,9 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**594/594 end-to-end assertions pass** (78 foundation + 69 clinical +
+**598/598 end-to-end assertions pass** (78 foundation + 69 clinical +
 106 billing + 95 patient + 82 insurance + 59 AI + 52 subscription +
-53 platform). Each suite resets what it depends on and creates what it needs,
+57 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
 | App | URL | For |
@@ -117,7 +117,7 @@ bash database/smoke-test-patient.sh      # 95 assertions
 bash database/smoke-test-insurance.sh    # 82 assertions
 bash database/smoke-test-ai.sh           # 59 assertions
 bash database/smoke-test-subscription.sh # 52 assertions
-bash database/smoke-test-platform.sh     # 53 assertions
+bash database/smoke-test-platform.sh     # 57 assertions
 
 # The §27 workflow in one run, from the doctor's sign-in to the patient's
 # phone. Not counted above — it re-walks ground the suites already cover, to
@@ -489,7 +489,8 @@ choose plan → organization created). Omitted means Free.
 ```
 GET    /platform/dashboard
 GET    /platform/organizations
-GET    /platform/organizations/{id}
+GET    /platform/organizations/{id}          its people, each row saying whether
+                                              they are a doctor or a patient
 PUT    /platform/organizations/{id}/status
 PUT    /platform/organizations/{id}/plan      move a clinic between plans
 

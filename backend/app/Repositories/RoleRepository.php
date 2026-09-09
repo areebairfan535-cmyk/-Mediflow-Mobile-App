@@ -162,17 +162,32 @@ final class RoleRepository extends Repository
         return Database::select(
             // LEFT JOIN on staff: the employment record is optional. A clinic
             // that keeps no employee numbers still has members.
+            //
+            // `doctor_id` and `patient_id` are here because a role slug does
+            // not say what somebody IS. The clinic's own doctor holds
+            // `solo_practitioner`, its owner is a dentist holding `org_owner`,
+            // and a caller grouping people by reading the slug gets both
+            // wrong. A row in `doctors` or `patients` is the fact; the role is
+            // only what they are allowed to press.
             'SELECT ou.id, ou.user_id, ou.role_id, ou.status, ou.job_title,
                     ou.joined_at,
                     u.name, u.email, u.phone, u.status AS user_status,
                     r.slug AS role_slug, r.name AS role_name,
-                    s.employee_no, s.department, s.designation, s.hired_at
+                    s.employee_no, s.department, s.designation, s.hired_at,
+                    d.id AS doctor_id, d.specialty,
+                    p.id AS patient_id, p.mrn
                FROM organization_users ou
                JOIN users u ON u.id = ou.user_id
                JOIN roles r ON r.id = ou.role_id
                LEFT JOIN staff s
                       ON s.organization_id = ou.organization_id
                      AND s.user_id = ou.user_id
+               LEFT JOIN doctors d
+                      ON d.organization_id = ou.organization_id
+                     AND d.user_id = ou.user_id
+               LEFT JOIN patients p
+                      ON p.organization_id = ou.organization_id
+                     AND p.user_id = ou.user_id
               WHERE ou.organization_id = :org
               ORDER BY r.name, u.name',
             ['org' => $organizationId],

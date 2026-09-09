@@ -12,6 +12,21 @@ export default function Platform() {
   const [orgs, setOrgs] = useState({ loading: true })
   const [search, setSearch] = useState('')
   const [notice, setNotice] = useState(null)
+  // The clinic whose people are open below the table, if any.
+  const [people, setPeople] = useState(null)
+  const [who, setWho] = useState('all')
+
+  async function openPeople(org) {
+    if (people?.orgId === org.id) { setPeople(null); return }   // click again to close
+    setPeople({ loading: true, orgId: org.id, orgName: org.name })
+    setWho('all')
+    try {
+      const res = await api.platformOrganization(org.id)
+      setPeople({ orgId: org.id, orgName: org.name, rows: res.data.members || [] })
+    } catch (error) {
+      setPeople({ orgId: org.id, orgName: org.name, error })
+    }
+  }
 
   async function loadDashboard() {
     setDash({ loading: true })
@@ -206,6 +221,13 @@ export default function Platform() {
                     <td>
                       <button
                         className="btn btn-sm btn-secondary"
+                        style={{ marginRight: 6 }}
+                        onClick={() => openPeople(o)}
+                      >
+                        {people?.orgId === o.id ? 'Hide people' : 'People'}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-secondary"
                         onClick={() => setStatus(o.id, o.status === 'active' ? 'suspended' : 'active')}
                       >
                         {o.status === 'active' ? 'Suspend' : 'Activate'}
@@ -218,6 +240,104 @@ export default function Platform() {
           </div>
         )}
       </Card>
+
+      {/* §21 asks a platform admin to look after doctor and patient accounts.
+          The counts in the table above say how many; this says who. The
+          endpoint has returned them all along — nothing here was calling it. */}
+      {people && <People people={people} who={who} setWho={setWho} />}
     </>
+  )
+}
+
+/** One clinic's members, grouped the way §21 names them. */
+function People({ people, who, setWho }) {
+  if (people.loading) return <Card title="Loading people…"><Loading /></Card>
+  if (people.error) return <Card title={people.orgName}><ErrorBox error={people.error} /></Card>
+
+  const rows = people.rows || []
+
+  // A doctor is somebody with a row in `doctors`, not somebody whose role slug
+  // reads like one — the clinic's own doctor holds `solo_practitioner` and its
+  // owner is a dentist holding `org_owner`. Anyone who is neither a doctor nor
+  // a patient is the front desk, the lab, the accounts room.
+  const groupOf = (m) => {
+    if (m.doctor_id) return 'doctors'
+    if (m.patient_id) return 'patients'
+    return 'staff'
+  }
+
+  const counts = rows.reduce((acc, m) => {
+    acc[groupOf(m)] = (acc[groupOf(m)] || 0) + 1
+    return acc
+  }, {})
+
+  const shown = who === 'all' ? rows : rows.filter((m) => groupOf(m) === who)
+
+  const tabs = [
+    ['all', `Everyone (${rows.length})`],
+    ['doctors', `Doctors (${counts.doctors || 0})`],
+    ['patients', `Patients (${counts.patients || 0})`],
+    ['staff', `Staff (${counts.staff || 0})`],
+  ]
+
+  return (
+    <Card
+      title={people.orgName}
+      action={
+        <div className="row" style={{ gap: 6 }}>
+          {tabs.map(([key, label]) => (
+            <button key={key}
+                    className={`btn btn-sm ${who === key ? '' : 'btn-secondary'}`}
+                    onClick={() => setWho(key)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      }
+      bodyless
+    >
+      {shown.length === 0 ? (
+        <Empty icon="👤" title="Nobody in this group" />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th><th>Email</th><th>Phone</th>
+                <th>Role</th><th>Joined</th><th>Account</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((m) => (
+                <tr key={m.id}>
+                  <td className="strong">{m.name}</td>
+                  <td className="mono">{m.email}</td>
+                  <td className="mono">{m.phone || '—'}</td>
+                  <td>
+                    {m.role_name || m.role_slug || '—'}
+                    {/* What they are, where it differs from what they may
+                        press — the owner here is also a dentist. */}
+                    {m.specialty && <div className="hint">{m.specialty}</div>}
+                    {m.mrn && <div className="hint mono">{m.mrn}</div>}
+                  </td>
+                  <td>{when(m.joined_at)}</td>
+                  <td>
+                    {/* Two statuses, and they are not the same thing: the
+                        membership can be revoked while the login still works
+                        elsewhere. Say so only when they disagree. */}
+                    <Badge tone={m.user_status === 'active' ? 'ok' : 'danger'}>
+                      {m.user_status || 'unknown'}
+                    </Badge>
+                    {m.status !== m.user_status && (
+                      <span className="hint"> · membership {m.status}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   )
 }

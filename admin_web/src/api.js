@@ -208,6 +208,9 @@ export const api = {
   },
   setOrganizationStatus: (id, status) =>
     request(`/platform/organizations/${id}/status`, { method: 'PUT', body: { status } }),
+  // One clinic's people — the doctors and patients §21 asks a platform admin
+  // to be able to look after. The endpoint has always returned them.
+  platformOrganization: (id) => request(`/platform/organizations/${id}`),
 
   // ---- platform: the price list and the markets (§21, §22, §23) ----
   platformPlans: () => request('/platform/plans'),

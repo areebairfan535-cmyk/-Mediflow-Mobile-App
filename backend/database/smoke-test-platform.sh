@@ -168,6 +168,39 @@ DEMO=$(sql "SELECT p.slug FROM subscriptions s JOIN plans p ON p.id=s.plan_id WH
 
 # ---------------------------------------------------------------
 echo
+echo "[3b] One clinic's doctors and patients (sec 21)"
+
+# sec 21 asks a platform admin to look after doctor and patient accounts, and
+# a count of members does not do that. The detail endpoint says who.
+R=$(api GET "/platform/organizations/1" '' "${AAUTH[@]}")
+expect "the clinic's people load" "$(status_of "$R")" "200"
+B=$(body_of "$R")
+
+# A role slug does not say what somebody IS: this clinic's doctor holds
+# `solo_practitioner`, and its owner is a dentist holding `org_owner`. Anyone
+# grouping people by reading the slug gets both wrong, so the rows carry the
+# fact — a doctors row and a patients row — instead.
+case "$B" in
+  *'"doctor_id"'*)  pass "members say who is a doctor" ;;
+  *)                fail "no doctor_id on the member rows" ;;
+esac
+case "$B" in
+  *'"patient_id"'*) pass "and who is a patient" ;;
+  *)                fail "no patient_id on the member rows" ;;
+esac
+
+# The count has to match the doctors table, not the number of doctor-ish role
+# names — those disagree, which is the whole point.
+DOCROWS=$(sql "SELECT COUNT(*) FROM doctors d
+   JOIN organization_users ou ON ou.user_id = d.user_id AND ou.organization_id = d.organization_id
+  WHERE d.organization_id = 1" | tr -d '\r')
+# [0-9]\+ , not [0-9]* — a star matches the empty string, so "doctor_id":null
+# counted as a doctor and every member looked like one.
+SEEN=$(printf '%s' "$B" | grep -o '"doctor_id":[0-9]\+' | wc -l | tr -d ' ')
+expect "every doctor on the record is named" "$SEEN" "$DOCROWS"
+
+# ---------------------------------------------------------------
+echo
 echo "[4] Countries are configuration, not code (sec 23)"
 
 R=$(api GET /platform/countries '' "${AAUTH[@]}")
