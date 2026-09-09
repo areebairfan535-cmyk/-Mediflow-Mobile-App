@@ -19,6 +19,27 @@ import {
  * A clinic with no gateway configured gets the screen exactly as it was — the
  * balance and where to pay it. The Pay button is absent rather than broken.
  */
+
+/**
+ * A refund's status said the way the person waiting on the money would say it.
+ *
+ * "Approved" is the one worth spelling out: the clinic has agreed to it and
+ * the money has still not moved, and a patient reading one word could easily
+ * take it for the other.
+ */
+const REFUND_STATE = {
+  pending: 'The clinic is reviewing this request.',
+  approved: 'Agreed — the money is on its way back to you.',
+  completed: 'Refunded',
+  rejected: 'This request was turned down. Ask the clinic why.',
+}
+
+const REFUND_TONE = {
+  pending: 'warn',
+  approved: 'accent',
+  completed: 'ok',
+  rejected: 'danger',
+}
 export default function Bills() {
   const [state, setState] = useState({ loading: true })
   const [open, setOpen] = useState(null)
@@ -219,22 +240,42 @@ export default function Bills() {
       {d.payments.length > 0 && (
         <>
           <SectionTitle>Payment history</SectionTitle>
-          {d.payments.map((p, i) => (
-            <Card key={i}>
-              <View style={s.spread}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: '600', color: c.ink }}>
-                    {String(p.method).replace(/_/g, ' ')}
-                  </Text>
-                  <Text style={s.docNo}>{p.receipt_no} · {p.invoice_no}</Text>
-                  <Text style={s.muted}>{dateOnly(p.paid_at || p.created_at)}</Text>
+          {/* A payment is not always money the clinic still holds: approving
+              a refund in full marks the payment `refunded`, and one recorded
+              against a card that did not go through is `failed`. Rendering
+              every row in green read as "paid" for all three. Green is now
+              the settled ones only, and anything else says what it is. */}
+          {d.payments.map((p, i) => {
+            const settled = p.status === 'succeeded'
+
+            return (
+              <Card key={i}>
+                <View style={s.spread}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: '600', color: c.ink }}>
+                      {String(p.method).replace(/_/g, ' ')}
+                    </Text>
+                    <Text style={s.docNo}>{p.receipt_no} · {p.invoice_no}</Text>
+                    <Text style={s.muted}>{dateOnly(p.paid_at || p.created_at)}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{
+                      fontSize: 17, fontWeight: '700',
+                      color: settled ? c.ok : c.muted,
+                      textDecorationLine: p.status === 'failed' ? 'line-through' : 'none',
+                    }}>
+                      {money(p.amount, p.currency_code)}
+                    </Text>
+                    {!settled && (
+                      <Badge tone={p.status === 'failed' ? 'danger' : 'warn'}>
+                        {p.status}
+                      </Badge>
+                    )}
+                  </View>
                 </View>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: c.ok }}>
-                  {money(p.amount, p.currency_code)}
-                </Text>
-              </View>
-            </Card>
-          ))}
+              </Card>
+            )
+          })}
         </>
       )}
 
@@ -247,12 +288,20 @@ export default function Bills() {
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontWeight: '600', color: c.ink }}>{r.invoice_no}</Text>
                   <Text style={s.muted}>{r.reason}</Text>
+                  {/* The status word is what the clinic will say on the phone,
+                      so it stays on the badge. This line is what it means for
+                      the person waiting on the money. */}
+                  <Text style={[s.muted, { marginTop: 4 }]}>
+                    {REFUND_STATE[r.status] || r.status}
+                    {r.status === 'completed' && r.refunded_at
+                      ? ` · ${dateOnly(r.refunded_at)}` : ''}
+                  </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={{ fontWeight: '700', color: c.ink }}>
                     {money(r.amount, r.currency_code)}
                   </Text>
-                  <Badge>{r.status}</Badge>
+                  <Badge tone={REFUND_TONE[r.status]}>{r.status}</Badge>
                 </View>
               </View>
             </Card>
