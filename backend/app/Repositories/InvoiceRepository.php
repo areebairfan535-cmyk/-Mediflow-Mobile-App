@@ -264,6 +264,13 @@ final class InvoiceRepository extends Repository
      * The two day bounds are a half-open UTC range for the clinic's local day,
      * computed by the caller because only it knows the clinic's timezone (§23).
      *
+     * All three figures skip drafts and cancellations, and they have to skip
+     * the same ones or the tiles argue with each other on screen. A draft is
+     * not billed — it has no invoice number, the patient has never seen it,
+     * and it may never be issued. Counting one as revenue while leaving its
+     * balance out of `outstanding` showed a doctor money billed, less money
+     * collected, and nothing owed, all at once.
+     *
      * @return array<string,mixed>
      */
     public function doctorDayMoney(int $doctorId, string $fromUtc, string $toUtc): array
@@ -271,8 +278,10 @@ final class InvoiceRepository extends Repository
         return Database::selectOne(
             'SELECT
                 COALESCE(SUM(CASE WHEN i.created_at >= :from AND i.created_at < :to
+                                   AND i.status NOT IN (\'cancelled\', \'draft\')
                                   THEN i.grand_total END), 0) AS billed_today,
                 COALESCE(SUM(CASE WHEN i.created_at >= :from2 AND i.created_at < :to2
+                                   AND i.status NOT IN (\'cancelled\', \'draft\')
                                   THEN i.paid_total END), 0)  AS collected_today,
                 COALESCE(SUM(CASE WHEN i.status NOT IN (\'cancelled\', \'draft\')
                                   THEN i.balance_due END), 0) AS outstanding

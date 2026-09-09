@@ -306,6 +306,81 @@ expect "receptionist CAN see the calendar" "$(status_of "$R")" "200"
 
 # ---------------------------------------------------------------
 echo
+echo "[8a] The day's tiles count the day's list (sec 4)"
+
+# `counts` is a SQL aggregate; `today` is the calendar query. They are two
+# paths to the same day, and the dashboard shows them side by side — the tile
+# says "3 completed" and pressing it lists those three. If the two ever
+# disagree the screen is lying, whichever half is right.
+R=$(api GET /doctors/dashboard '' "${AUTH[@]}")
+B=$(body_of "$R")
+COUNT_DONE=$(printf '%s' "$B" | grep -o '"completed":[0-9]*' | head -1 | sed 's/.*://')
+COUNT_CANX=$(printf '%s' "$B" | grep -o '"cancelled":[0-9]*' | head -1 | sed 's/.*://')
+
+# Rows in `today`, which starts after the "today" key.
+TODAY_BLOCK=$(printf '%s' "$B" | sed 's/.*"today":\[//; s/\],"open_encounter".*//')
+ROWS_DONE=$(printf '%s' "$TODAY_BLOCK" | grep -o '"status":"completed"' | wc -l | tr -d ' ')
+ROWS_CANX=$(printf '%s' "$TODAY_BLOCK" | grep -o '"status":"cancelled"\|"status":"no_show"' | wc -l | tr -d ' ')
+
+expect "completed tile matches the completed rows" "$COUNT_DONE" "$ROWS_DONE"
+# The tile counts no-shows with the cancellations, because an hour nobody
+# turned up for cost the doctor the same as one that was called off.
+expect "cancelled tile counts no-shows too"        "$COUNT_CANX" "$ROWS_CANX"
+
+# ---------------------------------------------------------------
+echo
+echo "[8b] The doctor's money tiles agree with each other (sec 4)"
+
+# A draft is not billed: it has no invoice number, the patient has never seen
+# it, and it may never be issued. All three figures skip drafts, and they have
+# to skip the same ones — counting one as revenue while leaving its balance
+# out of `outstanding` showed money billed, less collected, and nothing owed.
+R=$(api GET /doctors/dashboard '' "${AUTH[@]}")
+B=$(body_of "$R")
+BILLED_BEFORE=$(jval "$B" billed_today)
+# The dashboard's own doctor, which is the signed-in one and not necessarily
+# $DOCTOR — the invoice has to hang off a visit THIS dashboard counts.
+DASHDOC=$(jnum "$B" id)
+
+# One of that doctor's own visits that has NOT been invoiced yet — an
+# encounter carries at most one invoice, so re-using the last run's subject
+# would fail with a 409 on the second run and say nothing about the code.
+DENC=$("$MYSQL" -u root "$DB" -N -e "SELECT e.id FROM encounters e
+     LEFT JOIN invoices i ON i.encounter_id = e.id
+    WHERE e.organization_id = 1 AND e.doctor_id = $DASHDOC AND i.id IS NULL
+    ORDER BY e.id DESC LIMIT 1" 2>/dev/null)
+DPAT=$("$MYSQL" -u root "$DB" -N -e "SELECT patient_id FROM encounters
+   WHERE id = ${DENC:-0}" 2>/dev/null)
+
+# The first service the catalogue has a price for; a draft needs a priced line.
+PRICED=$(printf '%s' "$(body_of "$(api GET /services '' "${OAUTH[@]}")")" \
+  | grep -o '"id":[0-9]*,[^}]*"price":"[1-9][0-9.]*"' | head -1 | grep -o '^"id":[0-9]*' | sed 's/.*://')
+
+if [ -n "$PRICED" ] && [ -n "$DENC" ] && [ -n "$DPAT" ]; then
+  R=$(api POST /invoices \
+    "{\"patient_id\":$DPAT,\"encounter_id\":$DENC,\"items\":[{\"service_id\":$PRICED,\"quantity\":1}]}" \
+    "${OAUTH[@]}")
+  expect "raise a draft invoice on this doctor's visit" "$(status_of "$R")" "201"
+  DRAFTINV=$(jnum "$(body_of "$R")" id)
+  expect "and it really is a draft" "$(jval "$(body_of "$R")" status)" "draft"
+
+  R=$(api GET /doctors/dashboard '' "${AUTH[@]}")
+  expect "a draft does not count as billed" \
+    "$(jval "$(body_of "$R")" billed_today)" "$BILLED_BEFORE"
+
+  # Issuing it must move the figure the draft did not, or the filter above is
+  # not excluding drafts — it is excluding everything.
+  api POST "/invoices/$DRAFTINV/issue" '' "${OAUTH[@]}" > /dev/null
+  R=$(api GET /doctors/dashboard '' "${AUTH[@]}")
+  BILLED_AFTER=$(jval "$(body_of "$R")" billed_today)
+  [ "$BILLED_AFTER" != "$BILLED_BEFORE" ] && pass "issuing it does ($BILLED_BEFORE -> $BILLED_AFTER)" \
+                                          || fail "billed_today ignored an issued invoice too"
+else
+  fail "no priced service or no visit for the dashboard's doctor"
+fi
+
+# ---------------------------------------------------------------
+echo
 echo "[9] Audit trail covers clinical access (sec 16)"
 
 R=$(api GET "/audit-logs/patient/$PATIENT" '' "${OAUTH[@]}")
