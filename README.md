@@ -30,7 +30,7 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**588/588 end-to-end assertions pass** (78 foundation + 67 clinical +
+**590/590 end-to-end assertions pass** (78 foundation + 69 clinical +
 102 billing + 95 patient + 82 insurance + 59 AI + 52 subscription +
 53 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
@@ -111,7 +111,7 @@ C:/xampp/php/php.exe -S 127.0.0.1:8000 -t public
 
 # 5. Verify
 bash database/smoke-test.sh              # 78 assertions
-bash database/smoke-test-clinical.sh     # 67 assertions
+bash database/smoke-test-clinical.sh     # 69 assertions
 bash database/smoke-test-billing.sh      # 102 assertions
 bash database/smoke-test-patient.sh      # 95 assertions
 bash database/smoke-test-insurance.sh    # 82 assertions
@@ -661,6 +661,19 @@ It does not refuse the write. A clinician may prescribe against a recorded
 allergy for good reason, and software that silently overrides a clinical
 decision is more dangerous than software that surfaces it loudly. The clinic
 app renders the warnings in the same red banner as the allergy list.
+
+A line that names a catalogue medicine is matched against the catalogue as
+well as against the text the client sent. It used to read only the typed
+string, which meant whether an amoxicillin allergy was caught came down to how
+a client had composed a display name: the clinic app happens to send
+"Amoxicillin (Augmentin)" and it fired, while the same `medication_id` sent as
+"Augmentin 625mg" went through silently. A safety check must not depend on how
+somebody formatted a label.
+
+What it still cannot do is know that co-amoxiclav IS amoxicillin. That needs a
+drug database with ingredients and classes, not a longer list of spellings — a
+hand-kept synonym table would rot, and it would give false confidence in
+exactly the check nobody should be over-trusting.
 
 ### A visit cannot be completed empty
 

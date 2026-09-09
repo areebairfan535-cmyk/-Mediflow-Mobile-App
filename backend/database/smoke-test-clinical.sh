@@ -277,6 +277,46 @@ case "$(body_of "$R")" in
   *)         fail "no allergy warning for a known allergen" "$(body_of "$R")" ;;
 esac
 
+# The same catalogue medicine under its brand name. The check must read what
+# the medicine IS, not the label the client happened to compose: this line
+# carries medication_id, and the catalogue knows that id is Amoxicillin.
+# The suite makes its own subject rather than hoping the seeded allergies and
+# the seeded catalogue happen to line up: take any branded medicine and record
+# an allergy to its generic name.
+BRANDED=$("$MYSQL" -u root "$DB" -N -e "SELECT id FROM medications
+   WHERE organization_id = 1 AND brand_name IS NOT NULL AND brand_name <> ''
+   ORDER BY id LIMIT 1" 2>/dev/null)
+if [ -n "$BRANDED" ]; then
+  GENERIC=$("$MYSQL" -u root "$DB" -N -e "SELECT name FROM medications WHERE id=$BRANDED")
+  BRAND=$("$MYSQL"   -u root "$DB" -N -e "SELECT brand_name FROM medications WHERE id=$BRANDED")
+
+  api POST "/patients/$PATIENT/allergies" \
+    "{\"substance\":\"$GENERIC\",\"reaction\":\"Hives\",\"severity\":\"moderate\"}" \
+    "${AUTH[@]}" > /dev/null
+
+  R=$(api PUT "/prescriptions/$RX" \
+    "{\"items\":[{\"medication_id\":$BRANDED,\"medication_name\":\"$BRAND\",\"dosage\":\"1 tablet\"}]}" \
+    "${AUTH[@]}")
+  case "$(body_of "$R")" in
+    *ALLERGY*) pass "caught under the brand name too ($BRAND -> $GENERIC)" ;;
+    *)         fail "the allergy check depends on how the client wrote the name" ;;
+  esac
+else
+  fail "no branded medicine in the catalogue to test with"
+fi
+
+# And it must not cry wolf: an unrelated medicine warns about nothing.
+R=$(api PUT "/prescriptions/$RX" \
+  '{"items":[{"medication_name":"Paracetamol 500mg","dosage":"1 tablet"}]}' "${AUTH[@]}")
+case "$(body_of "$R")" in
+  *ALLERGY*) fail "an unrelated medicine raised an allergy warning" ;;
+  *)         pass "an unrelated medicine raises nothing" ;;
+esac
+
+# Put the allergen back, so the issued prescription is the one the rest of
+# this section expects to print.
+R=$(api PUT "/prescriptions/$RX" '{"items":[{"medication_name":"Penicillin V","dosage":"250mg","frequency":"four times a day","duration":"7 days"}]}' "${AUTH[@]}")
+
 R=$(api POST "/prescriptions/$RX/issue" '' "${AUTH[@]}")
 expect "issue prescription" "$(status_of "$R")" "200"
 

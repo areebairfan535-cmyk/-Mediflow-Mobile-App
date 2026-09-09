@@ -25,6 +25,34 @@ final class ClinicalRepository extends Repository
     // ---------------- medication catalogue ----------------
 
     /** @return list<array<string,mixed>> */
+    /**
+     * The catalogue names behind a set of prescribed lines.
+     *
+     * The allergy check needs what a medicine IS, not what the client called
+     * it on screen. `is_active` is not filtered here on purpose: a medicine
+     * retired from the catalogue is still the medicine the patient reacts to.
+     *
+     * @param list<int> $ids
+     * @return list<array<string,mixed>>
+     */
+    public function medicationNames(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter($ids, static fn ($i): bool => (int) $i > 0)));
+        if ($ids === []) {
+            return [];
+        }
+
+        // Built from integers this method cast itself — no request value ever
+        // reaches the string.
+        $in = implode(',', array_map('intval', $ids));
+
+        return Database::select(
+            "SELECT id, name, brand_name FROM medications
+              WHERE organization_id = :org AND id IN ($in)",
+            ['org' => $this->scopeBinding()],
+        );
+    }
+
     public function medications(?string $search = null, int $limit = 50): array
     {
         $where    = ['organization_id = :org', 'is_active = 1'];

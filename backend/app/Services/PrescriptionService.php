@@ -283,6 +283,19 @@ final class PrescriptionService extends Service
      * clinical decision. It returns warnings alongside the saved prescription
      * so the UI can surface them prominently.
      *
+     * A line that names a catalogue medicine is checked against the catalogue
+     * as well as against the text the client sent. This used to read only the
+     * typed string, so whether a patient's amoxicillin allergy was caught came
+     * down to how the client had composed a display name: the clinic app
+     * happens to send "Amoxicillin (Augmentin)" and it fired, but the same
+     * `medication_id` sent as "Augmentin 625mg" went through silently. A
+     * safety check must not depend on how somebody formatted a label.
+     *
+     * What it still cannot do is know that co-amoxiclav IS amoxicillin. That
+     * needs a drug database with ingredients and classes, not a longer list of
+     * spellings — a hand-kept synonym table would rot and give false
+     * confidence in exactly the check nobody should be over-trusting.
+     *
      * @param list<array<string,mixed>> $items
      * @return list<string>
      */
@@ -297,23 +310,46 @@ final class PrescriptionService extends Service
             return [];
         }
 
+        $catalogue = [];
+        foreach ($this->clinical()->medicationNames(
+            array_map(static fn(array $i): int => (int) ($i['medication_id'] ?? 0), $items),
+        ) as $row) {
+            $catalogue[(int) $row['id']] = array_filter([
+                (string) $row['name'],
+                (string) ($row['brand_name'] ?? ''),
+            ]);
+        }
+
         $warnings = [];
 
         foreach ($items as $item) {
-            $name = mb_strtolower($item['medication_name']);
+            // What the doctor typed, plus what the catalogue says it is.
+            $names = array_merge(
+                [(string) $item['medication_name']],
+                $catalogue[(int) ($item['medication_id'] ?? 0)] ?? [],
+            );
+
             foreach ($allergies as $allergy) {
                 $substance = mb_strtolower(trim((string) $allergy['substance']));
                 if ($substance === '') {
                     continue;
                 }
-                if (str_contains($name, $substance) || str_contains($substance, $name)) {
-                    $warnings[] = sprintf(
-                        'ALLERGY: %s — patient has a recorded %s allergy to "%s"%s.',
-                        $item['medication_name'],
-                        $allergy['severity'],
-                        $allergy['substance'],
-                        $allergy['reaction'] ? " ({$allergy['reaction']})" : '',
-                    );
+
+                foreach ($names as $candidate) {
+                    $name = mb_strtolower(trim($candidate));
+                    if ($name === '') {
+                        continue;
+                    }
+                    if (str_contains($name, $substance) || str_contains($substance, $name)) {
+                        $warnings[] = sprintf(
+                            'ALLERGY: %s — patient has a recorded %s allergy to "%s"%s.',
+                            $item['medication_name'],
+                            $allergy['severity'],
+                            $allergy['substance'],
+                            $allergy['reaction'] ? " ({$allergy['reaction']})" : '',
+                        );
+                        break;   // one warning per medicine per allergy
+                    }
                 }
             }
         }
