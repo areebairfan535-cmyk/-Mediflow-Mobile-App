@@ -32,16 +32,38 @@ done
 
 step "2. The shape holds up"
 # Tenant isolation is structural: every clinic-owned table must be scopable.
+#
+# Two kinds of table are exempt, and the difference between them matters.
+# GLOBAL tables are owned by nobody — reference data and platform machinery.
+# IDENTITY tables are owned by a person rather than a clinic: a login session,
+# a reset code, a phone. Somebody who works at two clinics carries one phone,
+# so hanging a device off an organisation would be a lie about who owns it.
+#
+# An exemption list is exactly where a real mistake hides: forget
+# organization_id on a genuinely clinic-owned table, drop its name in here,
+# and the test goes quiet. So the identity list has to earn itself — the
+# second check below makes every name on it prove it is keyed to a person.
+GLOBAL="'migrations','rate_limits','countries','plans','users','roles',
+        'permissions','role_permissions','platform_settings','organizations'"
+IDENTITY="'auth_tokens','password_resets','device_tokens'"
+
 UNSCOPED=$(sql "
   SELECT COUNT(*) FROM information_schema.tables t
    WHERE t.table_schema='$DB' AND t.table_type='BASE TABLE'
-     AND t.table_name NOT IN ('migrations','rate_limits','countries','plans','users',
-                              'roles','permissions','role_permissions','auth_tokens',
-                              'password_resets','platform_settings','organizations')
+     AND t.table_name NOT IN ($GLOBAL, $IDENTITY)
      AND NOT EXISTS (SELECT 1 FROM information_schema.columns c
                       WHERE c.table_schema='$DB' AND c.table_name=t.table_name
                         AND c.column_name='organization_id')")
 want "every tenant table carries organization_id" "$UNSCOPED" "0"
+
+IMPOSTOR=$(sql "
+  SELECT COUNT(*) FROM information_schema.tables t
+   WHERE t.table_schema='$DB' AND t.table_type='BASE TABLE'
+     AND t.table_name IN ($IDENTITY)
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns c
+                      WHERE c.table_schema='$DB' AND c.table_name=t.table_name
+                        AND c.column_name='user_id')")
+want "and each exempt identity table is keyed to a person" "$IMPOSTOR" "0"
 
 FKS=$(sql "SELECT COUNT(*) FROM information_schema.table_constraints
             WHERE table_schema='$DB' AND constraint_type='FOREIGN KEY'")
