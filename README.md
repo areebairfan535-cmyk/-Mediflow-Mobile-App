@@ -30,8 +30,8 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**624/624 end-to-end assertions pass** (78 foundation + 69 clinical +
-111 billing + 95 patient + 87 insurance + 59 AI + 61 subscription +
+**626/626 end-to-end assertions pass** (78 foundation + 69 clinical +
+111 billing + 95 patient + 87 insurance + 61 AI + 61 subscription +
 64 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
@@ -115,7 +115,7 @@ bash database/smoke-test-clinical.sh     # 69 assertions
 bash database/smoke-test-billing.sh      # 111 assertions
 bash database/smoke-test-patient.sh      # 95 assertions
 bash database/smoke-test-insurance.sh    # 87 assertions
-bash database/smoke-test-ai.sh           # 59 assertions
+bash database/smoke-test-ai.sh           # 61 assertions
 bash database/smoke-test-subscription.sh # 61 assertions
 bash database/smoke-test-platform.sh     # 64 assertions
 
@@ -893,6 +893,13 @@ model invented is dropped and reported, never billed), and the invoice appears
 only when a person ticks lines and presses the button. The claim assistant
 never gates Submit — a biller who disagrees with it is usually the one who is
 right.
+
+"Advisory" is two sentences, and only one of them was tested. That the review
+does not *act* was proved — it moves no status and raises no invoice. That it
+does not *veto* was not, and a guard reading `if (!ready_to_submit) throw`
+could have been added at any point with every assertion still passing. The
+suite now raises a claim the assistant calls unready and sends it anyway,
+expecting it to go. Adding that veto on purpose fails the run.
 
 ### A stub provider, so the safety gates are testable today
 

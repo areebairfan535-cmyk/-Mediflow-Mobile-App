@@ -345,6 +345,46 @@ else
     [ "$STATUS_BEFORE" = "$STATUS_AFTER" ] \
       && pass "reviewing did not move the claim ($STATUS_AFTER)" \
       || fail "the claim status changed during an advisory review"
+
+    # Advisory means two things and only one of them was checked. That the
+    # review does not ACT is proved above. That it does not VETO is a
+    # different sentence, and nothing tested it — a guard reading
+    # `if (!ready_to_submit) throw` could be added tomorrow and every
+    # assertion here would still pass.
+    #
+    # So: take a claim the assistant says is not ready, and send it anyway.
+    # The suite makes its own: waiting for a draft claim to be lying around
+    # meant this never ran at all, which is the failure it exists to prevent.
+    # An issued invoice for a patient with an active policy, not yet claimed.
+    CLAIMABLE=$(sql "SELECT i.id FROM invoices i
+        JOIN insurance_policies ip ON ip.patient_id = i.patient_id
+                                  AND ip.status = 'active'
+        LEFT JOIN claims c ON c.invoice_id = i.id
+       WHERE i.organization_id = 1
+         AND i.status IN ('issued','partially_paid','overdue')
+         AND c.id IS NULL
+       ORDER BY i.id DESC LIMIT 1")
+
+    if [ -n "$CLAIMABLE" ]; then
+      R=$(api POST /claims "{\"invoice_id\":$CLAIMABLE}" "${OAUTH[@]}")
+      NOTREADY=$(jnum "$(body_of "$R")" id)
+    fi
+
+    if [ -n "${NOTREADY:-}" ]; then
+      R=$(api GET "/claims/$NOTREADY/ai/review" '' "${OAUTH[@]}")
+      case "$(body_of "$R")" in
+        *'"ready_to_submit":false'*)
+          pass "the assistant calls this one not ready to send" ;;
+        *)
+          fail "expected a fresh claim to be missing something" ;;
+      esac
+
+      # And it goes anyway. The reviewer advises; the human decides.
+      R=$(api POST "/claims/$NOTREADY/submit" '{"external_claim_no":"AI-ADVISORY"}' "${OAUTH[@]}")
+      expect "and it submits regardless — advice, not a veto" "$(status_of "$R")" "200"
+    else
+      fail "no claimable invoice to raise a draft claim against"
+    fi
   fi
 
   R=$(api GET '/audit-logs?resource_type=ai_billing_suggestion' '' "${OAUTH[@]}")
