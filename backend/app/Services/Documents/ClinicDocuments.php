@@ -202,8 +202,51 @@ final class ClinicDocuments
             $pdf->text('PAID IN FULL', self::LEFT, $y, 13, 'bold', [0.06, 0.54, 0.37]);
         }
 
+        $y += 30;
+
+        // §27's receipt. Payments were already on the invoice we are handed and
+        // the page ignored them, so the receipt number the patient reads in the
+        // app appeared on no document at all. A settled invoice listing what
+        // was paid, when and how IS the receipt — there is no second piece of
+        // paper to keep in step with this one.
+        $received = array_filter(
+            $invoice['payments'] ?? [],
+            static fn(array $p): bool => in_array($p['status'] ?? '', ['succeeded', 'refunded'], true),
+        );
+
+        if ($received !== []) {
+            if ($y > 660) {
+                $pdf->newPage();
+                $y = 60.0;
+            }
+
+            $pdf->text('PAYMENTS RECEIVED', self::LEFT, $y, 8.5, 'bold', self::MUTED);
+            $y += 16;
+
+            foreach ($received as $payment) {
+                $pdf->text((string) $payment['receipt_no'], self::LEFT, $y, 9.5, 'mono');
+                $pdf->text(
+                    $locale->date($payment['paid_at'] ?? $payment['created_at'] ?? null)
+                        . '   ·   ' . str_replace('_', ' ', (string) $payment['method'])
+                        // Silence on a refunded line would read as money kept.
+                        . (($payment['status'] ?? '') === 'refunded' ? '   ·   refunded' : ''),
+                    self::LEFT + 110, $y, 9.5, 'regular', self::MUTED,
+                );
+                $pdf->textRight(self::money($payment['amount'] ?? 0), self::RIGHT - 8, $y, 9.5);
+                $y += 14;
+
+                if ($y > 700) {
+                    $pdf->newPage();
+                    $y = 60.0;
+                }
+            }
+
+            $pdf->line(self::LEFT, $y - 4, self::RIGHT, $y - 4, 0.4, self::RULE);
+            $y += 10;
+        }
+
         if (!empty($invoice['notes'])) {
-            $pdf->paragraph((string) $invoice['notes'], self::LEFT, $y + 40, 300, 9.5);
+            $pdf->paragraph((string) $invoice['notes'], self::LEFT, $y + 10, 300, 9.5);
         }
 
         self::footer($pdf, $locale, 'Computer-generated invoice — valid without a signature.');

@@ -349,6 +349,29 @@ expect "no payment on a settled invoice" "$(status_of "$R")" "409"
 R=$(api POST "/invoices/$INV/cancel" '{"reason":"test"}' "${OAUTH[@]}")
 expect "cannot cancel a paid invoice" "$(status_of "$R")" "409"
 
+# §27 wants a receipt out of the payment. A settled invoice listing what was
+# paid IS one — so the receipt number the patient reads in their app has to be
+# on the paper too, or it is a number that exists nowhere anybody can hold.
+PAIDPDF="${TMPDIR:-/tmp}/mediflow-paid-invoice.pdf"
+CODE=$(curl -s -o "$PAIDPDF" -w '%{http_code}' "$BASE/invoices/$INV/pdf" \
+    -H "Authorization: Bearer $OWNER")
+expect "the settled invoice prints" "$CODE" "200"
+# tr -d '\r': the client emits CRLF on Windows, and a receipt number with a
+# carriage return welded to it matches nothing. Only the last row of a
+# multi-row result escapes it, which is a wonderfully misleading way to fail.
+RECEIPTS=$("$MYSQL" -u root "$DB" -N -e "SELECT receipt_no FROM payments
+   WHERE invoice_id = $INV AND status IN ('succeeded','refunded')" | tr -d '\r')
+MISSING=""
+for RCT in $RECEIPTS; do
+  grep -q "$RCT" "$PAIDPDF" || MISSING="$MISSING $RCT"
+done
+[ -n "$RECEIPTS" ] && [ -z "$MISSING" ] \
+  && pass "every receipt is on the invoice PDF ($(echo $RECEIPTS | wc -w) of them)" \
+  || fail "receipt(s) missing from the printed invoice:$MISSING"
+
+grep -q "PAYMENTS RECEIVED" "$PAIDPDF" && pass "under a payments heading" \
+                                       || fail "no payments section on the PDF"
+
 # ---------------------------------------------------------------
 echo
 echo "[5] Refunds (sec 7)"

@@ -30,8 +30,8 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**590/590 end-to-end assertions pass** (78 foundation + 69 clinical +
-102 billing + 95 patient + 82 insurance + 59 AI + 52 subscription +
+**594/594 end-to-end assertions pass** (78 foundation + 69 clinical +
+106 billing + 95 patient + 82 insurance + 59 AI + 52 subscription +
 53 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
@@ -112,7 +112,7 @@ C:/xampp/php/php.exe -S 127.0.0.1:8000 -t public
 # 5. Verify
 bash database/smoke-test.sh              # 78 assertions
 bash database/smoke-test-clinical.sh     # 69 assertions
-bash database/smoke-test-billing.sh      # 102 assertions
+bash database/smoke-test-billing.sh      # 106 assertions
 bash database/smoke-test-patient.sh      # 95 assertions
 bash database/smoke-test-insurance.sh    # 82 assertions
 bash database/smoke-test-ai.sh           # 59 assertions
@@ -710,7 +710,7 @@ exactly the thing a fixed catalogue would have blocked.
 
 ---
 
-## Five more decisions from Phase 3
+## Six more decisions from Phase 3
 
 ### Money is never a float, and never comes from the client
 
@@ -763,6 +763,20 @@ screen, disagreeing.
 A draft has no invoice number, the patient has never seen it, and it may never
 be issued at all — the same reason the number is allocated at issue rather
 than at creation. It is not billed, so it is not on the revenue tile either.
+
+### The settled invoice is the receipt
+
+§27 ends with the doctor taking payment and a receipt existing. There is no
+separate receipt document, on purpose: two pieces of paper describing the same
+money are two things to keep in step, and the second one is always the one
+that goes stale.
+
+The invoice PDF lists the payments instead — receipt number, date, method,
+amount, and `refunded` on anything that went back out. A settled invoice
+therefore says what was charged, what was paid and that nothing is owed, on
+one page. The payments were already on the record the PDF is handed; the page
+simply ignored them, so the receipt number the patient reads in their app
+appeared on no document at all.
 
 ### A refunded payment is still a payment
 
