@@ -54,3 +54,6 @@ backend/database/*.pdf
 
 # Backups hold a full database dump — patient data. Never in version control.
 backend/storage/backups/
+
+# Test runner output
+backend/database/last-run.log
