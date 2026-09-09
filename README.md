@@ -118,6 +118,11 @@ bash database/smoke-test-insurance.sh    # 82 assertions
 bash database/smoke-test-ai.sh           # 59 assertions
 bash database/smoke-test-subscription.sh # 52 assertions
 bash database/smoke-test-platform.sh     # 53 assertions
+
+# The §27 workflow in one run, from the doctor's sign-in to the patient's
+# phone. Not counted above — it re-walks ground the suites already cover, to
+# prove the chain between them holds.
+bash database/test-mvp.sh                # 27 assertions
 ```
 
 Each suite resets the state it depends on at startup — stale open

@@ -45,13 +45,50 @@ DOC=$(sql "SELECT d.id FROM doctors d JOIN users u ON u.id=d.user_id WHERE u.ema
 step "2. He opens today's appointment for the patient"
 
 sql "UPDATE encounters SET status='completed', completed_at=NOW() WHERE doctor_id=$DOC AND status='open'" >/dev/null
-APPT=$(sql "SELECT id FROM appointments WHERE doctor_id=$DOC AND patient_id=$PID
-            AND DATE(scheduled_at)=CURDATE() AND status IN ('booked','confirmed','arrived')
-            ORDER BY id LIMIT 1")
+find_appointment() {
+  sql "SELECT id FROM appointments WHERE doctor_id=$DOC AND patient_id=$PID
+       AND DATE(scheduled_at)=CURDATE() AND status IN ('booked','confirmed','arrived')
+       ORDER BY id LIMIT 1" | tr -d '\r'
+}
+
+APPT=$(find_appointment)
+
+# Every run consumes one of today's appointments, and the day rolls over, so
+# waiting for somebody to have run seed_today.php meant this script worked on
+# Tuesday and not on Wednesday. Like the other suites, it makes what it needs:
+# a slot the clinic's own availability offers, booked through the API so the
+# working-hours and double-booking rules still apply.
 if [ -z "$APPT" ]; then
-  echo "  (no appointment today — run database/seed_today.php)"; exit 1
+  SLOT=$(curl -s "${D[@]}" "$BASE/doctors/$DOC/available-slots?date=$(date -u +%F)" \
+       | grep -o '"start":"[^"]*"' | head -1 | sed 's/.*"start":"//; s/"$//')
+
+  if [ -n "$SLOT" ]; then
+    R=$(curl -s -X POST "${D[@]}" "$BASE/appointments" \
+          -d "{\"patient_id\":$PID,\"doctor_id\":$DOC,\"scheduled_at\":\"$SLOT\",\"reason\":\"Toothache\"}")
+    APPT=$(id_of "$R" id)
+  fi
+
+  # Run this late enough in the clinic's day and there is no slot left to
+  # book, which is correct of the booking rules and useless to a test that
+  # wants to walk the workflow. So the fixture is written directly — setup,
+  # not a path under test; everything this file actually checks starts at the
+  # consultation. The suites do the same where a subject has to exist.
+  if [ -z "$APPT" ]; then
+    sql "INSERT INTO appointments
+           (organization_id, patient_id, doctor_id, scheduled_at, duration_minutes,
+            type, status, reason, created_at, updated_at)
+         VALUES (1, $PID, $DOC, DATE_ADD(CURDATE(), INTERVAL 9 HOUR), 15,
+            'consultation', 'booked', 'Toothache', UTC_TIMESTAMP(), UTC_TIMESTAMP())" >/dev/null
+    APPT=$(find_appointment)
+    [ -n "$APPT" ] && ok "made today's appointment (id $APPT — no slot was free)"
+  else
+    ok "booked today's appointment (id $APPT)"
+  fi
+
+  [ -n "$APPT" ] || { bad "no appointment today and none could be made" ""; exit 1; }
+else
+  ok "found today's appointment (id $APPT)"
 fi
-ok "found today's appointment (id $APPT)"
 
 R=$(curl -s -X POST "${D[@]}" "$BASE/encounters" \
       -d "{\"patient_id\":$PID,\"doctor_id\":$DOC,\"appointment_id\":$APPT,\"type\":\"outpatient\",\"chief_complaint\":\"Toothache, left side, four days\"}")

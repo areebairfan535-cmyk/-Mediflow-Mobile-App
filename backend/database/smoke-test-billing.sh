@@ -489,10 +489,32 @@ else
 fi
 
 # An open consultation is not billable.
-OPENENC=$("$MYSQL" -u root "$DB" -N -e "SELECT id FROM encounters WHERE status='open' LIMIT 1")
+#
+# This used to run only if one happened to be lying around, which meant it
+# silently did not run at all after the clinical suite — that one closes stale
+# consultations on startup, so there were none left. An assertion that skips
+# itself depending on what ran before is worse than no assertion: the count
+# still goes up and nobody looks. So it opens its own.
+OPENENC=$("$MYSQL" -u root "$DB" -N -e "SELECT id FROM encounters WHERE status='open' LIMIT 1" | tr -d '\r')
+
+if [ -z "$OPENENC" ]; then
+  FREEDOC=$("$MYSQL" -u root "$DB" -N -e "SELECT d.id FROM doctors d
+      LEFT JOIN encounters e ON e.doctor_id = d.id AND e.status = 'open'
+     WHERE d.organization_id = 1 AND e.id IS NULL LIMIT 1" | tr -d '\r')
+  if [ -n "$FREEDOC" ]; then
+    R=$(api POST /encounters "{\"patient_id\":$PATIENT,\"doctor_id\":$FREEDOC}" "${OAUTH[@]}")
+    OPENENC=$(jnum "$(body_of "$R")" id)
+  fi
+fi
+
 if [ -n "$OPENENC" ]; then
   R=$(api POST "/encounters/$OPENENC/invoice" '' "${OAUTH[@]}")
   expect "cannot bill an open consultation" "$(status_of "$R")" "409"
+  # Leave the clinic as it was found: a doctor may hold only one open
+  # consultation, and a stray one blocks the next run of another suite.
+  api POST "/encounters/$OPENENC/cancel" '{"reason":"billing suite fixture"}' "${OAUTH[@]}" > /dev/null
+else
+  fail "could not open a consultation to prove an open one cannot be billed"
 fi
 
 # ---------------------------------------------------------------
