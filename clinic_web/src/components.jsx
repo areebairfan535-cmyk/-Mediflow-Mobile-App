@@ -260,3 +260,28 @@ export function AllergyBanner({ allergies }) {
     </div>
   )
 }
+
+/**
+ * What the patient is already living with, beside what they are allergic to.
+ *
+ * Amber, and under the allergies: an allergy changes what a clinician does in
+ * the next thirty seconds, a chronic condition changes what they choose over
+ * the next ten minutes. Both belong on the screen before anything is
+ * prescribed — reaching them used to mean leaving the consultation.
+ */
+export function ConditionBanner({ conditions }) {
+  const ongoing = (conditions || []).filter((c) => c.status !== 'resolved')
+  if (ongoing.length === 0) return null
+
+  return (
+    <div className="condition-banner">
+      <div className="title">Ongoing conditions</div>
+      {ongoing.map((c) => (
+        <div className="item" key={c.id}>
+          <strong>{c.name}</strong> — {c.status}
+          {c.icd10_code ? <span className="mono"> {c.icd10_code}</span> : null}
+        </div>
+      ))}
+    </div>
+  )
+}

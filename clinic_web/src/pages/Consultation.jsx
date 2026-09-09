@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, openPdf } from '../api.js'
 import {
-  Card, Badge, Loading, ErrorBox, Modal, AllergyBanner,
+  Card, Badge, Loading, ErrorBox, Modal, AllergyBanner, ConditionBanner,
   dateOf, initials,
 } from '../components.jsx'
 import { money } from './Billing.jsx'
@@ -86,7 +86,7 @@ export default function Consultation({ encounterId, session, go }) {
         </button>
       </div>
 
-      <PatientAllergies patientId={e.patient_id} />
+      <PatientHistory patientId={e.patient_id} />
 
       {notice && <div className={notice.ok ? 'alert alert-ok' : 'alert'}>{notice.message}</div>}
 
@@ -428,14 +428,35 @@ function BillVisit({ encounter, session, onInvoiced, onError }) {
   )
 }
 
-function PatientAllergies({ patientId }) {
-  const [allergies, setAllergies] = useState([])
+/**
+ * §4 step one is the patient's medical history, and that is both halves of it.
+ *
+ * The call already returned the conditions — the chart is fetched whole — and
+ * this threw them away, so a doctor about to prescribe saw the allergies and
+ * nothing about the diabetes. Finding that out meant opening the full chart,
+ * which leaves the consultation.
+ */
+function PatientHistory({ patientId }) {
+  const [history, setHistory] = useState({ allergies: [], conditions: [] })
+
   useEffect(() => {
+    let alive = true
     api.patient(patientId)
-      .then((r) => setAllergies(r.data.patient.allergies || []))
+      .then((r) => {
+        if (!alive) return
+        const p = r.data.patient
+        setHistory({ allergies: p.allergies || [], conditions: p.conditions || [] })
+      })
       .catch(() => {})
+    return () => { alive = false }
   }, [patientId])
-  return <AllergyBanner allergies={allergies} />
+
+  return (
+    <>
+      <AllergyBanner allergies={history.allergies} />
+      <ConditionBanner conditions={history.conditions} />
+    </>
+  )
 }
 
 /**

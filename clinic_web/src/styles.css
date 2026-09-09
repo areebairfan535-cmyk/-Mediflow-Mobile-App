@@ -611,6 +611,26 @@ td.mono, .mono { font-family: var(--mono); font-size: 12.5px; }
 .allergy-banner .item { color: var(--ink); font-size: 13.5px; }
 .allergy-banner .item + .item { margin-top: 3px; }
 
+/* Same shape as the allergy banner, one step quieter — it sits underneath. */
+.condition-banner {
+  background: var(--warn-soft);
+  border: 1px solid rgba(180, 106, 0, 0.24);
+  border-left: 4px solid var(--warn);
+  border-radius: 8px;
+  padding: 11px 14px;
+  margin-bottom: 14px;
+}
+.condition-banner .title {
+  color: var(--warn);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 5px;
+}
+.condition-banner .item { color: var(--ink); font-size: 13.5px; }
+.condition-banner .item + .item { margin-top: 3px; }
+
 .patient-header {
   display: flex;
   gap: 16px;
