@@ -317,6 +317,76 @@ expect "AI status is still readable" "$(status_of "$R")" "200"
 
 # ---------------------------------------------------------------
 echo
+echo "[6b] Every limit sec 22 names refuses a write, not just a number"
+
+# The staff cap was the only one proved to stop anything, and staff is not
+# among the six sec 21 names. The rest were enforced in code and asserted
+# nowhere — so a metric could quietly stop counting and every screen would
+# still show the number.
+#
+# One plan with room for exactly one doctor and one patient and nothing else,
+# and then each write is tried until it is refused.
+R=$(api POST /auth/login '{"email":"admin@mediflow.test","password":"Password123"}')
+ADMIN=$(jval "$(body_of "$R")" access_token)
+AAUTH=(-H "Authorization: Bearer $ADMIN")
+
+PIN_SLUG="pinhole$STAMP"
+R=$(api POST /platform/plans "{\"slug\":\"$PIN_SLUG\",\"name\":\"Pinhole $STAMP\",
+   \"price_monthly\":0,\"currency_code\":\"PKR\",
+   \"max_doctors\":1,\"max_staff\":100,\"max_patients\":1,\"max_storage_mb\":0,
+   \"max_invoices_month\":0,\"max_appointments_month\":0,\"max_ai_calls_month\":0}" "${AAUTH[@]}")
+expect "a plan with one seat of everything" "$(status_of "$R")" "201"
+PINHOLE=$(jnum "$(body_of "$R")" id)
+
+R=$(api PUT "/platform/organizations/$NEW_ORG/plan" "{\"plan_id\":$PINHOLE}" "${AAUTH[@]}")
+expect "the clinic moves onto it" "$(status_of "$R")" "200"
+
+# --- doctors: one seat, and the plan is checked before anything is written
+MEMBER=$(sql "SELECT ou.user_id FROM organization_users ou
+    LEFT JOIN doctors d ON d.user_id = ou.user_id AND d.organization_id = ou.organization_id
+   WHERE ou.organization_id = $NEW_ORG AND d.id IS NULL LIMIT 1" | tr -d '\r')
+R=$(api POST /doctors "{\"user_id\":$MEMBER,\"specialty\":\"General\"}" "${NAUTH[@]}")
+expect "the first doctor fits" "$(status_of "$R")" "201"
+DOC=$(jnum "$(body_of "$R")" id)
+
+MEMBER2=$(sql "SELECT ou.user_id FROM organization_users ou
+    LEFT JOIN doctors d ON d.user_id = ou.user_id AND d.organization_id = ou.organization_id
+   WHERE ou.organization_id = $NEW_ORG AND d.id IS NULL LIMIT 1" | tr -d '\r')
+R=$(api POST /doctors "{\"user_id\":$MEMBER2,\"specialty\":\"General\"}" "${NAUTH[@]}")
+expect "the second doctor is refused" "$(status_of "$R")" "402"
+
+# --- patients
+R=$(api POST /patients '{"first_name":"Only","last_name":"Patient"}' "${NAUTH[@]}")
+expect "the first patient fits" "$(status_of "$R")" "201"
+PAT=$(jnum "$(body_of "$R")" id)
+
+R=$(api POST /patients '{"first_name":"One","last_name":"TooMany"}' "${NAUTH[@]}")
+expect "the second patient is refused" "$(status_of "$R")" "402"
+
+# --- appointments, invoices, storage: nothing allowed at all
+SLOT=$(date -u -d "tomorrow 09:00" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -u "+%Y-%m-%d 09:00:00")
+R=$(api POST /appointments \
+    "{\"patient_id\":$PAT,\"doctor_id\":$DOC,\"scheduled_at\":\"$SLOT\"}" "${NAUTH[@]}")
+expect "no appointment on a zero allowance" "$(status_of "$R")" "402"
+
+R=$(api POST /invoices "{\"patient_id\":$PAT,\"items\":[]}" "${NAUTH[@]}")
+expect "no invoice either" "$(status_of "$R")" "402"
+
+# Written beside this script, and passed relatively: curl here is a Windows
+# binary, and a POSIX /tmp path inside -F is not translated for it — the
+# request never leaves, which shows up as http 000 rather than as an error.
+UPFILE="mediflow-limit-$STAMP.pdf"
+printf '%%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%%%EOF\n' > "$UPFILE"
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/patients/$PAT/documents" \
+    -F "file=@$UPFILE;type=application/pdf" -F 'title=Over the line' "${NAUTH[@]}")
+rm -f "$UPFILE"
+expect "and no storage to put a file in" "$CODE" "402"
+
+# Retire the plan so the price list is not left with a test row on offer.
+api PUT "/platform/plans/$PINHOLE" '{"is_active":false}' "${AAUTH[@]}" > /dev/null
+
+# ---------------------------------------------------------------
+echo
 echo "[7] Tenant isolation holds for plans too (sec 10)"
 
 R=$(api GET /organizations/current/subscription '' \

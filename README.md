@@ -30,8 +30,8 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**605/605 end-to-end assertions pass** (78 foundation + 69 clinical +
-106 billing + 95 patient + 82 insurance + 59 AI + 52 subscription +
+**614/614 end-to-end assertions pass** (78 foundation + 69 clinical +
+106 billing + 95 patient + 82 insurance + 59 AI + 61 subscription +
 64 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
@@ -116,7 +116,7 @@ bash database/smoke-test-billing.sh      # 106 assertions
 bash database/smoke-test-patient.sh      # 95 assertions
 bash database/smoke-test-insurance.sh    # 82 assertions
 bash database/smoke-test-ai.sh           # 59 assertions
-bash database/smoke-test-subscription.sh # 52 assertions
+bash database/smoke-test-subscription.sh # 61 assertions
 bash database/smoke-test-platform.sh     # 64 assertions
 
 # The §27 workflow in one run, from the doctor's sign-in to the patient's
@@ -1026,6 +1026,14 @@ have run out", and only one of those is fixed by upgrading. The suite proves
 it against a brand-new organization on Free, which is what a real sign-up
 gets — the demo clinic is seeded on Professional so its own data never trips
 the wire.
+
+For a long time it proved it for **staff and nothing else**, which is the one
+metric §21 does not name. The rest were enforced in code and asserted nowhere,
+so a counter could have stopped counting and every screen would still have
+shown the number. The suite now puts a clinic on a plan with room for one
+doctor and one patient and zero of everything else, and watches each write get
+turned away: the second doctor, the second patient, and any appointment,
+invoice or upload at all.
 
 Standing limits (doctors, staff, patients, storage) are counted from the
 source tables, never from a stored counter: a clinic that removes a doctor
