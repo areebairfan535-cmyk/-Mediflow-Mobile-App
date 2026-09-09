@@ -207,8 +207,45 @@ expect "impossible vital rejected" "$(status_of "$R")" "422"
 R=$(api POST "/encounters/$ENC/diagnoses" '{"description":"Irreversible pulpitis #26","icd10_code":"K04.0","type":"primary"}' "${AUTH[@]}")
 expect "record diagnosis" "$(status_of "$R")" "201"
 
+# sec 4 minimise-typing: the diagnosis just recorded must come back as a
+# suggestion, so the next doctor picks it instead of retyping the wording.
+R=$(api GET '/diagnoses/common?search=pulpitis' '' "${AUTH[@]}")
+expect "the clinic's own diagnoses come back" "$(status_of "$R")" "200"
+B=$(body_of "$R")
+case "$B" in
+  *'Irreversible pulpitis #26'*) pass "the one just written is on the list" ;;
+  *)                             fail "a diagnosis the clinic uses is not suggested" ;;
+esac
+case "$B" in
+  *'"times_used"'*) pass "and it says how often it has been used" ;;
+  *)                fail "no usage count to order the list by" ;;
+esac
+# A search that matches nothing must come back empty, not fall back to all of
+# them — a picker that ignores the query is worse than no picker.
+R=$(api GET '/diagnoses/common?search=zzzznotathing' '' "${AUTH[@]}")
+case "$(body_of "$R")" in
+  *'"diagnoses":[]'*) pass "an unmatched search returns nothing" ;;
+  *)                  fail "the search filter is not being applied" ;;
+esac
+
 R=$(api POST "/encounters/$ENC/procedures" '{"name":"Pulpotomy","site":"#26","outcome":"Uneventful"}' "${AUTH[@]}")
 expect "record procedure" "$(status_of "$R")" "201"
+
+# A procedure picked from the catalogue carries the service with it, so the
+# choice that records it is the choice that prices it (sec 27).
+PROCSVC=$(printf '%s' "$(body_of "$(api GET '/services?category=procedure' '' "${OAUTH[@]}")")" \
+  | grep -o '"id":[0-9]*' | head -1 | sed 's/.*://')
+if [ -n "$PROCSVC" ]; then
+  R=$(api POST "/encounters/$ENC/procedures" \
+    "{\"name\":\"From the catalogue\",\"service_id\":$PROCSVC}" "${AUTH[@]}")
+  expect "a procedure can name a catalogue service" "$(status_of "$R")" "201"
+  case "$(body_of "$R")" in
+    *"\"service_id\":$PROCSVC"*) pass "and the link is stored, not dropped" ;;
+    *)                           fail "service_id did not survive the write" ;;
+  esac
+else
+  fail "no priced procedure in the catalogue to link to"
+fi
 
 R=$(api POST "/encounters/$ENC/lab-orders" '{"priority":"routine","clinical_notes":"Pre-op bloods"}' "${AUTH[@]}")
 expect "order lab test" "$(status_of "$R")" "201"

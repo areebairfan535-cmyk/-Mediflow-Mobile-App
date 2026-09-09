@@ -126,6 +126,22 @@ final class EncounterController extends Controller
 
     // ---- child records ----
 
+    /**
+     * What this clinic diagnoses, commonest first — the pick list behind §4's
+     * "minimise typing". Reads nothing patient-specific: it is the wording and
+     * the codes, not who they were written about.
+     */
+    public function commonDiagnoses(Request $request): never
+    {
+        $q = $this->validateQuery($request, ['search' => 'nullable|string|max:120']);
+
+        $this->ok([
+            'diagnoses' => (new \App\Repositories\EncounterRepository())
+                ->forOrganization($request->organizationId())
+                ->commonDiagnoses($q['search'] ?? null),
+        ]);
+    }
+
     public function addDiagnosis(Request $request): never
     {
         $data = $this->validate($request, [

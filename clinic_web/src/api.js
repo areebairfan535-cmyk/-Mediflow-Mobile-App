@@ -201,6 +201,9 @@ export const api = {
   completeEncounter: (id, body) => request(`/encounters/${id}/complete`, { method: 'POST', body }),
   cancelEncounter: (id, reason) =>
     request(`/encounters/${id}/cancel`, { method: 'POST', body: { reason } }),
+  // What this clinic has diagnosed before, commonest first — the pick list
+  // that saves the doctor retyping wording they have used forty times.
+  commonDiagnoses: (search) => request(`/diagnoses/common${qs({ search })}`),
   addDiagnosis: (id, body) => request(`/encounters/${id}/diagnoses`, { method: 'POST', body }),
   addProcedure: (id, body) => request(`/encounters/${id}/procedures`, { method: 'POST', body }),
   orderLab: (id, body) => request(`/encounters/${id}/lab-orders`, { method: 'POST', body }),

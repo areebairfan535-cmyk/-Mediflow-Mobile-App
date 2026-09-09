@@ -226,6 +226,11 @@ $router->group('/api/v1', [], function ($router): void {
         $router->post('/encounters/{id}/complete', [EncounterController::class, 'complete'], ['perm:encounter.update']);
         $router->post('/encounters/{id}/cancel',   [EncounterController::class, 'cancel'],   ['perm:encounter.update']);
 
+        // The clinic's own diagnosis wording, for the picker that saves the
+        // doctor retyping it. Gated on the permission that records one.
+        $router->get('/diagnoses/common', [EncounterController::class, 'commonDiagnoses'],
+            ['perm:diagnosis.manage']);
+
         $router->post('/encounters/{id}/diagnoses',  [EncounterController::class, 'addDiagnosis'], ['perm:diagnosis.manage']);
         $router->post('/encounters/{id}/procedures', [EncounterController::class, 'addProcedure'], ['perm:procedure.manage']);
         $router->post('/encounters/{id}/notes',      [EncounterController::class, 'addNote'],      ['perm:encounter.update']);

@@ -4,6 +4,7 @@ import {
   Card, Badge, Loading, ErrorBox, Modal, AllergyBanner,
   dateOf, initials,
 } from '../components.jsx'
+import { money } from './Billing.jsx'
 import { ClinicalNotes, AiBillingSuggestions } from '../ai.jsx'
 
 /**
@@ -277,6 +278,17 @@ export default function Consultation({ encounterId, session, go }) {
       {modal === 'diagnosis' && (
         <SimpleModal
           title="Add diagnosis"
+          picker={{
+            label: 'What this clinic diagnoses',
+            placeholder: 'Start typing — pulpitis, caries…',
+            search: (q) => api.commonDiagnoses(q).then((r) => r.data.diagnoses),
+            render: (d) => ({
+              title: d.description,
+              sub: d.icd10_code || 'no code recorded',
+              meta: `${d.times_used}×`,
+            }),
+            fill: (d) => ({ description: d.description, icd10_code: d.icd10_code || '' }),
+          }}
           fields={[
             { key: 'description', label: 'Diagnosis', required: true,
               placeholder: 'Irreversible pulpitis #26' },
@@ -296,6 +308,21 @@ export default function Consultation({ encounterId, session, go }) {
       {modal === 'procedure' && (
         <SimpleModal
           title="Record procedure"
+          // The catalogue the clinic already maintains for billing. Picking
+          // from it carries `service_id` through, so the same choice that
+          // records the procedure is the one that prices it later.
+          picker={{
+            label: 'From the service catalogue',
+            placeholder: 'Start typing — pulpotomy, scaling…',
+            search: (q) => api.services({ category: 'procedure', search: q })
+              .then((r) => r.data.services),
+            render: (s) => ({
+              title: s.name,
+              sub: s.code || 'no code',
+              meta: s.price ? money(s.price, s.currency_code) : undefined,
+            }),
+            fill: (s) => ({ name: s.name, cpt_code: s.code || '', service_id: s.id }),
+          }}
           fields={[
             { key: 'name', label: 'Procedure', required: true, placeholder: 'Pulpotomy' },
             { key: 'site', label: 'Site', placeholder: '#26' },
@@ -843,11 +870,35 @@ function CompleteVisit({ onComplete, onCancel }) {
   )
 }
 
-function SimpleModal({ title, fields, onClose, onSubmit }) {
+/**
+ * A form in a modal, optionally with a pick list above it.
+ *
+ * `picker` is §4's "minimise typing" rule applied to the two places that were
+ * still pure typing. Pass { placeholder, search, render, fill } and the doctor
+ * searches, clicks, and the boxes below are already filled — free text stays
+ * available underneath for the thing that has not been seen before.
+ */
+function SimpleModal({ title, fields, onClose, onSubmit, picker }) {
   const [values, setValues] = useState(
     Object.fromEntries(fields.map((f) => [f.key, f.default ?? ''])),
   )
   const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
+  const [options, setOptions] = useState([])
+  const [picked, setPicked] = useState(false)
+
+  // Same 200ms as the medication search: long enough not to fire on every
+  // keystroke, short enough that it feels like the list is just there.
+  useEffect(() => {
+    if (!picker) return undefined
+    let alive = true
+    const t = setTimeout(() => {
+      picker.search(query)
+        .then((rows) => { if (alive) setOptions(rows || []) })
+        .catch(() => { if (alive) setOptions([]) })
+    }, 200)
+    return () => { alive = false; clearTimeout(t) }
+  }, [query, picker])
 
   async function submit(e) {
     e.preventDefault()
@@ -873,6 +924,49 @@ function SimpleModal({ title, fields, onClose, onSubmit }) {
       }
     >
       <form id="simple-form" onSubmit={submit}>
+        {picker && (
+          <div className="field">
+            <label>{picker.label}</label>
+            <input value={query} placeholder={picker.placeholder}
+                   onChange={(ev) => setQuery(ev.target.value)} />
+
+            {options.length > 0 && (
+              <div style={{ marginTop: 8, maxHeight: 210, overflowY: 'auto' }}>
+                {options.map((row, i) => {
+                  const view = picker.render(row)
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      className="line-item"
+                      style={{ width: '100%', textAlign: 'left', cursor: 'pointer',
+                               font: 'inherit', background: 'var(--surface)' }}
+                      onClick={() => {
+                        setValues({ ...values, ...picker.fill(row) })
+                        setPicked(true)
+                        setQuery('')
+                        setOptions([])
+                      }}
+                    >
+                      <div className="body">
+                        <div className="title">{view.title}</div>
+                        {view.sub && <div className="sub">{view.sub}</div>}
+                      </div>
+                      {view.meta && <span className="hint">{view.meta}</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            <p className="hint" style={{ marginTop: 6 }}>
+              {picked
+                ? 'Filled in below — change anything that is not right.'
+                : 'Pick one, or just type it in below.'}
+            </p>
+          </div>
+        )}
+
         {fields.map((f) => (
           <div className="field" key={f.key}>
             <label>{f.label}{f.required ? ' *' : ''}</label>

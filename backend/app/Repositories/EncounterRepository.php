@@ -184,6 +184,41 @@ final class EncounterRepository extends Repository
         return $this->firstWhere(['doctor_id' => $doctorId, 'status' => 'open']);
     }
 
+    /**
+     * The diagnoses this clinic actually writes, commonest first (§4).
+     *
+     * There is no diagnosis catalogue to ship — "the things a dental clinic
+     * diagnoses" is not a list anyone can write in advance, and one bought in
+     * would be wrong for every practice in a different way. What a clinic HAS
+     * diagnosed is a better list than any of them, it needs no maintaining,
+     * and it is right from the second visit onwards.
+     *
+     * Grouped on the pair, so the same wording under two ICD-10 codes stays
+     * two entries — that difference is usually the point.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function commonDiagnoses(?string $search = null, int $limit = 20): array
+    {
+        $where    = ['organization_id = :org', "TRIM(description) <> ''"];
+        $bindings = ['org' => $this->scopeBinding()];
+
+        if ($search !== null && trim($search) !== '') {
+            $where[]       = '(description LIKE :q OR icd10_code LIKE :q)';
+            $bindings['q'] = '%' . trim($search) . '%';
+        }
+
+        return Database::select(
+            'SELECT description, icd10_code, COUNT(*) AS times_used
+               FROM diagnoses
+              WHERE ' . implode(' AND ', $where) . '
+              GROUP BY description, icd10_code
+              ORDER BY times_used DESC, description
+              LIMIT ' . max(1, min(50, $limit)),
+            $bindings,
+        );
+    }
+
     // ---- child writes ----
 
     /** @param array<string,mixed> $data */
