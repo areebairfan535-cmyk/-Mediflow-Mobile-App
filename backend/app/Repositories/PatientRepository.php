@@ -178,13 +178,26 @@ final class PatientRepository extends Repository
      * The notifier needs to know whether there is an account to notify and
      * where to send to. It has no business reading a chart to find out.
      *
+     * The chart comes first and the linked account is the fallback. A patient
+     * who signed into the app has an email — it is the address they log in
+     * with — and reading only the chart meant every email-carrying event
+     * (§20's `invoice.issued`) was silently dropped for anyone whose chart had
+     * no email typed into it. Nothing said so: the channel simply never
+     * queued, which looks the same as one that was never wanted.
+     *
+     * Front desk over self-service where both exist, because the clinic
+     * correcting a bounced address should win over a stale signup.
+     *
      * @return array<string,mixed>|null
      */
     public function contactFor(int $patientId): ?array
     {
         return Database::selectOne(
-            'SELECT p.id, p.user_id, p.email, p.phone
+            'SELECT p.id, p.user_id,
+                    COALESCE(NULLIF(p.email, \'\'), u.email) AS email,
+                    COALESCE(NULLIF(p.phone, \'\'), u.phone) AS phone
                FROM patients p
+               LEFT JOIN users u ON u.id = p.user_id
               WHERE p.organization_id = :org AND p.id = :id',
             ['org' => $this->scopeBinding(), 'id' => $patientId],
         );

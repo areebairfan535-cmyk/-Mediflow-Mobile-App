@@ -431,6 +431,16 @@ case "$B" in
   *)                  fail "no payment.received event" ;;
 esac
 
+# sec 20 lists email among invoice.issued's channels. The address is resolved
+# from the chart first and the linked account second, so a patient who typed
+# no email onto their chart still gets one — before that fallback the row was
+# never queued at all, and nothing said why.
+EMAILROW=$("$MYSQL" -u root "$DB" -N -e "SELECT COUNT(*) FROM notifications
+   WHERE subject_type='invoice' AND subject_id=$NEWINV
+     AND channel='email' AND to_address IS NOT NULL AND to_address <> ''")
+[ "$EMAILROW" -ge 1 ] && pass "the invoice email is queued to a real address" \
+                      || fail "invoice.issued queued no addressed email row"
+
 # The patient sees only their own inbox.
 OTHERNOTIF=$("$MYSQL" -u root "$DB" -N -e "SELECT COUNT(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE u.email <> 'patient@demo.test'")
 case "$B" in
