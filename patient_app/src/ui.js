@@ -190,6 +190,13 @@ export const s = StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 2,
   },
 
+  // A doctor's note inside a visit card. Tinted and inset so a paragraph of
+  // prose does not read as another bullet in the list above it.
+  noteBlock: {
+    backgroundColor: c.bg, borderRadius: 10, padding: 12,
+    borderLeftWidth: 3, borderLeftColor: c.accent, marginBottom: 8,
+  },
+
   card: {
     backgroundColor: c.surface, borderRadius: 12, padding: 15,
     borderWidth: 1, borderColor: c.border, marginBottom: 10,

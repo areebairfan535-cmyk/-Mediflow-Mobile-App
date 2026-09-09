@@ -231,6 +231,17 @@ echo "[5] Records, prescriptions, bills (sec 3)"
 
 R=$(api GET /patient/records '' "${PAUTH[@]}")
 expect "medical records" "$(status_of "$R")" "200"
+B=$(body_of "$R")
+case "$B" in
+  *'"notes"'*) pass "a visit carries the doctor's notes" ;;
+  *)           fail "no notes on the visit record" ;;
+esac
+# Every note here was selected on approved_at IS NOT NULL, and nothing else in
+# the records payload has that column. A null one means the sec 9 gate leaked.
+case "$B" in
+  *'"approved_at":null'*) fail "an unapproved note leaked to the patient" ;;
+  *)                      pass "only approved notes are shown" ;;
+esac
 
 R=$(api GET /patient/prescriptions '' "${PAUTH[@]}")
 expect "prescriptions" "$(status_of "$R")" "200"

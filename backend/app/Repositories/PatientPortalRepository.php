@@ -354,6 +354,31 @@ final class PatientPortalRepository extends Repository
         );
     }
 
+    /**
+     * The doctor's notes on one visit, as §3 lists them among the records a
+     * patient holds — discharge summaries included.
+     *
+     * `approved_at IS NOT NULL` is the whole filter and it is not negotiable:
+     * §9 says nothing the assistant writes is a record until a person takes
+     * responsibility for it, and a draft the doctor has not read yet is not a
+     * note the patient should be reading either. The author's name goes with
+     * it, because an unattributed note is not a note anyone can ask about.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function encounterNotes(int $encounterId): array
+    {
+        return $this->query(
+            'SELECT n.id, n.type, n.body, n.approved_at, u.name AS author_name
+               FROM clinical_notes n
+               LEFT JOIN users u ON u.id = n.approved_by
+              WHERE n.organization_id = :org AND n.encounter_id = :eid
+                AND n.approved_at IS NOT NULL
+              ORDER BY n.approved_at',
+            ['org' => $this->scopeBinding(), 'eid' => $encounterId],
+        );
+    }
+
     // ---------------------------------------------------------------
     // Money (§7)
     // ---------------------------------------------------------------

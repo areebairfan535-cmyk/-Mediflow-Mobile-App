@@ -14,11 +14,23 @@ const TABS = [
 ]
 
 /**
- * §3 medical records: visit history, prescriptions and lab results.
+ * What the record calls each kind of note, said the way a patient would say
+ * it. "SOAP note" means nothing outside a clinic.
+ */
+const NOTE_LABELS = {
+  soap: 'Doctor’s note',
+  progress: 'Progress note',
+  discharge: 'Discharge summary',
+  referral: 'Referral letter',
+  general: 'Doctor’s note',
+}
+
+/**
+ * §3 medical records: visit history with the doctor's notes on it,
+ * prescriptions, lab results and released reports.
  *
- * Clinical notes are deliberately absent — §5 treats them as the clinician's
- * working record. What the clinic chooses to release comes through
- * medical_documents instead.
+ * A note reaches this screen only once a clinician has approved it (§9) — a
+ * draft is not yet anybody's record, least of all the patient's.
  */
 export default function Records() {
   const [tab, setTab] = useState('visits')
@@ -143,6 +155,26 @@ function Visit({ e }) {
 
       {vitals.length > 0 && (
         <Text style={[s.muted, { marginTop: 10 }]}>{vitals.join('  ·  ')}</Text>
+      )}
+
+      {/* §3: the doctor's own write-up of the visit, discharge summaries
+          included. Only notes a clinician has approved reach here, so what is
+          shown is what somebody put their name to. */}
+      {e.notes?.length > 0 && (
+        <View style={{ marginTop: 12 }}>
+          {e.notes.map((n) => (
+            <View key={n.id} style={s.noteBlock}>
+              <Text style={s.subSection}>{NOTE_LABELS[n.type] || 'Doctor’s note'}</Text>
+              <Text style={[s.body, { marginTop: 4 }]}>{n.body}</Text>
+              {n.author_name ? (
+                <Text style={[s.muted, { marginTop: 6 }]}>
+                  Approved by {n.author_name}
+                  {n.approved_at ? ` · ${dateOnly(n.approved_at)}` : ''}
+                </Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
       )}
 
       {e.followup_on ? (

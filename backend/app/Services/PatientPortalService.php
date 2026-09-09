@@ -368,9 +368,18 @@ final class PatientPortalService extends Service
 
             $encounters[$i]['diagnoses']  = $portal->encounterDiagnoses($encounterId);
             $encounters[$i]['procedures'] = $portal->encounterProcedures($encounterId);
-            // Clinical notes are deliberately NOT exposed: §5 treats them as
-            // the clinician's working record, and releasing them is a decision
-            // the clinic makes per document, via medical_documents.
+
+            // §3 lists doctor notes and discharge summaries among the records
+            // a patient holds, so they come back here. Approved ones only —
+            // see encounterNotes().
+            //
+            // This used to withhold them entirely, on the reading that a note
+            // is the clinician's working record. That reading did not survive
+            // contact with §16: `GET /patient/export` has always handed back
+            // the same approved notes, so the rule was not "the patient may
+            // not see these" but "the patient may see these, in a JSON file,
+            // if they think to ask". Same filter as the export uses.
+            $encounters[$i]['notes'] = $portal->encounterNotes($encounterId);
         }
 
         return $encounters;
