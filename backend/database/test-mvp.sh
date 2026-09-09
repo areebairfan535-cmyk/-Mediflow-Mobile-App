@@ -13,6 +13,12 @@ BASE="${BASE:-http://127.0.0.1:8000/api/v1}"
 MYSQL="${MYSQL:-/c/xampp/mysql/bin/mysql.exe}"
 DB="${DB:-mediflow}"
 PASS=0; FAIL=0
+# Sign-ins are rate limited per IP, and a suite that runs straight after
+# another starts with a bucket somebody else filled. Clearing it first means a
+# 429 in this suite is this suite's fault. (test-security.sh is the exception:
+# it wants the limiter, and clears the bucket right before measuring it.)
+reset_limits() { [ -x "$MYSQL" ] && "$MYSQL" -u root "$DB" -e "TRUNCATE TABLE rate_limits;" 2>/dev/null; }
+reset_limits
 step() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok()   { PASS=$((PASS+1)); printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  \033[31mFAIL\033[0m  %s  %s\n' "$1" "${2:-}"; }

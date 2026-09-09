@@ -2,7 +2,13 @@
 # §19 API structure: /api/v1 and the twelve endpoint groups it names.
 set -uo pipefail
 BASE="${BASE:-http://127.0.0.1:8000/api/v1}"
+MYSQL="${MYSQL:-/c/xampp/mysql/bin/mysql.exe}"
+DB="${DB:-mediflow}"
 PASS=0; FAIL=0
+# See the note in the other suites: a bucket somebody else filled makes a
+# 429 look like this suite's fault.
+reset_limits() { [ -x "$MYSQL" ] && "$MYSQL" -u root "$DB" -e "TRUNCATE TABLE rate_limits;" 2>/dev/null; }
+reset_limits
 step() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok()   { PASS=$((PASS+1)); printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  \033[31mFAIL\033[0m  %s  %s\n' "$1" "${2:-}"; }

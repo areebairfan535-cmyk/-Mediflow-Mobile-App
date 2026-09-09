@@ -5,12 +5,18 @@
 #   bash database/run-all-tests.sh
 #   bash database/run-all-tests.sh smoke-test.sh test-api.sh    # just these
 #
-# The 35-second gap between suites is not politeness. Sign-ins are rate
-# limited per IP (10 a minute by default — RATE_LIMIT_AUTH_MAX), every suite
-# signs in several times, and two suites back to back trip the limit. That
-# surfaces as a 429 inside a test which has nothing to do with rate limiting
-# and looks exactly like a real failure. For the same reason: never run two
-# copies of this script at once.
+# Sign-ins are rate limited per IP (10 a minute by default —
+# RATE_LIMIT_AUTH_MAX). Every suite signs in several times, so two of them
+# back to back used to trip the limit and report a 429 inside a test about
+# something else entirely — a failure that looks real and is not.
+#
+# Each suite now clears the bucket before it starts, so the gap below is a
+# small courtesy rather than the thing holding it together. Set GAP=0 to run
+# them as fast as they will go.
+#
+# Still true: do not run two copies of this script at once. They share the
+# database, and one clearing the limiter mid-way through the other's throttle
+# test is exactly the sort of failure nobody can reproduce.
 #
 # test-mvp.sh needs a consultation happening today:
 #   php database/seed_today.php
@@ -18,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG="${LOG:-$HERE/last-run.log}"
-GAP="${GAP:-35}"
+GAP="${GAP:-5}"
 
 cd "$HERE" || exit 1
 
