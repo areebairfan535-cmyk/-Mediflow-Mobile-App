@@ -249,4 +249,16 @@ export const s = StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 5,
   },
   alertItem: { color: c.ink, fontSize: 14, marginTop: 2 },
+
+  // Ongoing conditions belong beside the allergies and never above them: they
+  // are something a clinician should know, not something that changes what
+  // they do in the next thirty seconds. Amber, under the red.
+  noteBanner: {
+    backgroundColor: c.warnSoft, borderLeftWidth: 4, borderLeftColor: c.warn,
+    borderRadius: 10, padding: 13, marginBottom: 12,
+  },
+  noteTitle: {
+    color: c.warn, fontWeight: '700', fontSize: 11.5,
+    textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 5,
+  },
 })

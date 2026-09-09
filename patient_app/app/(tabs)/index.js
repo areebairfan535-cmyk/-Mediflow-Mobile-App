@@ -50,6 +50,7 @@ export default function Home() {
 
   const d = state.d
   const allergies = d.alerts.allergies || []
+  const conditions = d.alerts.conditions || []
 
   return (
     <ScrollView
@@ -95,6 +96,22 @@ export default function Home() {
               <Text style={{ fontWeight: '700' }}>{a.substance}</Text>
               {' — '}{String(a.severity).replace(/_/g, ' ')}
               {a.reaction ? ` · ${a.reaction}` : ''}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      {/* The other half of §3's "medical alerts". The API has always sent
+          these; showing only the allergies meant a patient carrying a chronic
+          condition saw it nowhere but as a number further down. */}
+      {conditions.length > 0 && (
+        <View style={[s.noteBanner, allergies.length === 0 ? { marginTop: 16 } : null]}>
+          <Text style={s.noteTitle}>Ongoing conditions</Text>
+          {conditions.map((cond) => (
+            <Text key={cond.id} style={s.alertItem}>
+              <Text style={{ fontWeight: '700' }}>{cond.name}</Text>
+              {' — '}{cond.status}
+              {cond.diagnosed_on ? ` · since ${dateOnly(cond.diagnosed_on)}` : ''}
             </Text>
           ))}
         </View>
