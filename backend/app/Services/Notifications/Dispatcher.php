@@ -43,11 +43,14 @@ final class Dispatcher
     public function __construct(?array $channels = null, ?NotificationRepository $notifications = null)
     {
         $this->channels = $channels ?? [
-            'in_app' => new InAppChannel(),
-            'email'  => new SmtpChannel(),
-            'sms'    => new SmsChannel(),
-            'push'   => new PushChannel(),
-            // WhatsApp is §20's "future"; it slots in here as one more class.
+            'in_app'   => new InAppChannel(),
+            'email'    => new SmtpChannel(),
+            'sms'      => new SmsChannel(),
+            'push'     => new PushChannel(),
+            // §20's "future" channel, and the proof that adding one is a
+            // class and a line: unconfigured it reports SKIPPED, which is
+            // honest, rather than "no handler", which reads like a fault.
+            'whatsapp' => new WhatsAppChannel(),
         ];
 
         $this->notifications = $notifications ?? new NotificationRepository();

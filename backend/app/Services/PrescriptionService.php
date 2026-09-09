@@ -158,6 +158,10 @@ final class PrescriptionService extends Service
 
         $repo->update($id, ['status' => 'issued', 'issued_at' => now(), 'updated_by' => $this->actorId]);
 
+        // §19: and the moment it stops changing, so it is kept rather than
+        // re-rendered later from data that may since have moved on.
+        $this->keepIssuedPdf($id, $prescription);
+
         // §20: issuing is the moment the prescription becomes the patient's
         // document, so it is also the moment they are told about it.
         try {
@@ -176,6 +180,37 @@ final class PrescriptionService extends Service
         }
 
         return $this->show($id);
+    }
+
+    /**
+     * Render the issued prescription once and file it (§19).
+     *
+     * Failure here is logged and swallowed: the prescription IS issued, the
+     * patient is waiting, and a missing copy can be regenerated. Refusing to
+     * issue because a disk is full would be the wrong trade.
+     *
+     * @param array<string,mixed> $prescription the row as it was before issuing
+     */
+    private function keepIssuedPdf(int $id, array $prescription): void
+    {
+        try {
+            $full   = $this->show($id);
+            $clinic = (new \App\Repositories\OrganizationRepository())
+                ->settings($this->requireOrganization()) ?? [];
+
+            $document = (new Documents\DocumentStore($this->organizationId, $this->actorId))->tryKeep([
+                'patient_id'   => (int) $prescription['patient_id'],
+                'encounter_id' => $prescription['encounter_id'] ?? null,
+                'category'     => 'prescription',
+                'title'        => 'Prescription ' . (string) $full['prescription_no'],
+            ], Documents\ClinicDocuments::prescription($full, $clinic));
+
+            if ($document !== null) {
+                $this->prescriptions()->update($id, ['pdf_path' => $document['storage_path']]);
+            }
+        } catch (\Throwable $e) {
+            error_log('[documents] prescription PDF not kept: ' . $e->getMessage());
+        }
     }
 
     private function doctorName(int $doctorId): string

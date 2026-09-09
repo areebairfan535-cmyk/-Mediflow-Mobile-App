@@ -79,6 +79,33 @@ final class InvoiceService extends Service
         return $this->invoices()->countryId();
     }
 
+    /**
+     * Render the issued invoice once and file it (§19).
+     *
+     * Swallows its own failures. The invoice IS issued and the ledger says so;
+     * a missing PDF can be regenerated, but an issue rolled back because a
+     * disk was full would leave the number allocated and the patient waiting.
+     *
+     * @param array<string,mixed> $issued the invoice as issued, with its items
+     */
+    private function keepIssuedPdf(int $id, array $issued): void
+    {
+        try {
+            $document = (new Documents\DocumentStore($this->organizationId, $this->actorId))->tryKeep([
+                'patient_id'   => (int) $issued['patient_id'],
+                'encounter_id' => $issued['encounter_id'] ?? null,
+                'category'     => 'invoice',
+                'title'        => 'Invoice ' . (string) $issued['invoice_no'],
+            ], Documents\ClinicDocuments::invoice($issued, $this->settings()));
+
+            if ($document !== null) {
+                $this->invoices()->update($id, ['pdf_path' => $document['storage_path']]);
+            }
+        } catch (\Throwable $e) {
+            error_log('[documents] invoice PDF not kept: ' . $e->getMessage());
+        }
+    }
+
     // ---------------------------------------------------------------
     // Reads
     // ---------------------------------------------------------------
@@ -324,6 +351,11 @@ final class InvoiceService extends Service
             ]));
 
             $issued = $this->show($id);
+
+            // §19: an issued invoice cannot be edited, so this is the last
+            // moment its content is settled — keep the document rather than
+            // re-render it later from data that may have moved on.
+            $this->keepIssuedPdf($id, $issued);
 
             // §20: the patient is told once the invoice is a real document.
             try {
