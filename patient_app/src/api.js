@@ -191,6 +191,14 @@ async function request(path, options = {}) {
 export const api = {
   register: (name, email, password) =>
     request('/auth/register', { method: 'POST', body: { name, email, password }, withAuth: false }),
+  // Attaches a login to the chart the clinic already holds. The patient ID and
+  // date of birth are what prove it is their chart.
+  claimChart: (mrn, date_of_birth, name, email, password) =>
+    request('/auth/claim', {
+      method: 'POST',
+      body: { mrn, date_of_birth, name, email, password },
+      withAuth: false,
+    }),
   login: (email, password) =>
     request('/auth/login', { method: 'POST', body: { email, password }, withAuth: false }),
   logout: () => request('/auth/logout', { method: 'POST' }),
@@ -218,14 +226,33 @@ export const api = {
   profile: () => request('/patient/profile'),
   updateProfile: (body) => request('/patient/profile', { method: 'PUT', body }),
 
+  // ---- online payment (§7) ----
+  // Asked before a Pay button is drawn: a clinic with no gateway configured
+  // should not be offered one that can only fail.
+  paymentStatus: () => request('/patient/payments/status'),
+  // No amount is sent — the server reads it off the invoice.
+  startPayment: (invoiceId) =>
+    request(`/patient/invoices/${invoiceId}/pay`, { method: 'POST' }),
+  confirmPayment: (reference) =>
+    request('/patient/payments/confirm', { method: 'POST', body: { reference } }),
+
   appointments: (scope) =>
     request(`/patient/appointments${scope ? `?scope=${scope}` : ''}`),
   cancelAppointment: (id, reason) =>
     request(`/patient/appointments/${id}/cancel`, { method: 'POST', body: { reason } }),
 
   // ---- booking, from the patient's own app (§3) ----
-  bookableDoctors: (search) =>
-    request(`/patient/doctors${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  bookableDoctors: (search, specialty, location) => {
+    const q = new URLSearchParams()
+    if (search) q.set('search', search)
+    if (specialty) q.set('specialty', specialty)
+    if (location) q.set('location', location)
+    const query = q.toString()
+    return request(`/patient/doctors${query ? `?${query}` : ''}`)
+  },
+  // The specialties and locations this clinic actually has doctors in, so a
+  // filter can never offer a choice that comes back empty.
+  doctorFilters: () => request('/patient/doctors/filters'),
   doctorSlots: (doctorId, date) =>
     request(`/patient/doctors/${doctorId}/slots?date=${date}`),
   book: (doctor_id, scheduled_at, reason) =>

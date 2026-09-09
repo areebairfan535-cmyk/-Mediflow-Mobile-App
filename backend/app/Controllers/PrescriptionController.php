@@ -12,6 +12,31 @@ use App\Services\PrescriptionService;
 final class PrescriptionController extends Controller
 {
     /**
+     * The clinic's prescriptions (§19).
+     *
+     * §19 names /prescriptions as an endpoint group, and until now the only
+     * way in was by id — you could read a prescription you already knew about
+     * and not otherwise find one. A pharmacy asking "what is waiting to be
+     * dispensed today" had nowhere to ask.
+     */
+    public function index(Request $request): never
+    {
+        $filters = $this->validateQuery($request, [
+            'patient_id' => 'nullable|integer',
+            'doctor_id'  => 'nullable|integer',
+            'status'     => 'nullable|in:draft,issued,cancelled',
+            'from'       => 'nullable|date',
+            'to'         => 'nullable|date',
+        ]);
+
+        [$page, $perPage] = $this->pagination($request);
+
+        $result = PrescriptionService::for($request)->search($filters, $page, $perPage);
+
+        $this->ok($result['data'], $result['meta']);
+    }
+
+    /**
      * The printable prescription (§4).
      *
      * Rendered on demand rather than stored: a stored file is a second copy of

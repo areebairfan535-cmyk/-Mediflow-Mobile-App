@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\ConflictException;
-use App\Core\Database;
 use App\Core\ForbiddenException;
 use App\Core\NotFoundException;
 use App\Core\Service;
@@ -236,10 +235,9 @@ final class AppointmentService extends Service
     private function notify(array $appointment, string $event, array $extra = []): void
     {
         try {
-            $doctor = \App\Core\Database::selectOne(
-                'SELECT u.name FROM doctors d JOIN users u ON u.id = d.user_id WHERE d.id = :id',
-                ['id' => (int) $appointment['doctor_id']],
-            );
+            $doctorName = (new \App\Repositories\DoctorRepository())
+                ->forOrganization($this->requireOrganization())
+                ->displayName((int) $appointment['doctor_id']);
 
             $when = (new \DateTimeImmutable(
                 (string) $appointment['scheduled_at'],
@@ -250,7 +248,7 @@ final class AppointmentService extends Service
                 (int) $appointment['patient_id'],
                 $event,
                 [
-                    'doctor'       => $doctor['name'] ?? 'your doctor',
+                    'doctor'       => $doctorName,
                     'when'         => $when,
                     'reason'       => $appointment['cancelled_reason'] ?? '',
                     'subject_type' => 'appointment',
@@ -357,25 +355,9 @@ final class AppointmentService extends Service
         $to   = (new \DateTimeImmutable($today . ' 00:00:00', $this->timezone()))
             ->modify('+1 day')->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
 
-        $money = Database::selectOne(
-            'SELECT
-                COALESCE(SUM(CASE WHEN i.created_at >= :from AND i.created_at < :to
-                                  THEN i.grand_total END), 0) AS billed_today,
-                COALESCE(SUM(CASE WHEN i.created_at >= :from2 AND i.created_at < :to2
-                                  THEN i.paid_total END), 0)  AS collected_today,
-                COALESCE(SUM(CASE WHEN i.status NOT IN (\'cancelled\', \'draft\')
-                                  THEN i.balance_due END), 0) AS outstanding
-               FROM invoices i
-               JOIN encounters e ON e.id = i.encounter_id
-              WHERE i.organization_id = :org
-                AND e.doctor_id = :doctor',
-            [
-                'org'    => $this->requireOrganization(),
-                'doctor' => $doctorId,
-                'from'   => $from,  'to'  => $to,
-                'from2'  => $from,  'to2' => $to,
-            ],
-        ) ?? [];
+        $money = (new \App\Repositories\InvoiceRepository())
+            ->forOrganization($this->requireOrganization())
+            ->doctorDayMoney($doctorId, $from, $to);
 
         $dashboard['money'] = [
             'billed_today'    => Money::round($money['billed_today'] ?? 0),

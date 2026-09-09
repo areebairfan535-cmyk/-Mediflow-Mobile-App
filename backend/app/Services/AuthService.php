@@ -87,6 +87,106 @@ final class AuthService
     }
 
     /**
+     * A patient claims the chart their clinic already holds (§3).
+     *
+     * register() above deliberately grants no membership, which is right for
+     * someone starting a clinic but a dead end for a patient: they finish
+     * sign-up and land on "your record is not attached yet", waiting for a
+     * receptionist. This is the other door. It does not create a chart — it
+     * attaches a login to one that already exists.
+     *
+     * Identity is proved with the medical record number and the date of birth.
+     * The MRN is printed on the patient's own prescriptions and invoices, the
+     * date of birth is on file, and neither is public. Requiring both means a
+     * stranger with a guessed MRN still cannot open somebody's medical history.
+     *
+     * Every failure to match answers the same way. Distinguishing "no such
+     * MRN" from "wrong date of birth" would turn this into a lookup service
+     * for whether a person is a patient here — which is itself confidential.
+     * The /auth throttle bucket limits the guessing.
+     *
+     * @param array<string,mixed> $data validated: mrn, date_of_birth, email, password, name?
+     * @return array<string,mixed>
+     */
+    public function claimChart(Request $request, array $data): array
+    {
+        $mrn   = trim((string) $data['mrn']);
+        $dob   = trim((string) $data['date_of_birth']);
+        $email = strtolower(trim((string) $data['email']));
+
+        $vague = new ValidationException([
+            'mrn' => ['Those details do not match a record we can attach an account to. '
+                      . 'Check the patient ID and date of birth on your prescription, '
+                      . 'or ask the clinic to set the account up for you.'],
+        ]);
+
+        // MRN is unique per clinic, not globally. On a single-clinic install
+        // that is one row; where several clinics share a deployment the same
+        // number can repeat, and guessing which chart was meant is not a thing
+        // to do with a medical record.
+        $matches = (new \App\Repositories\PatientRepository())
+            ->findClaimableByMrnAndDob($mrn, $dob);
+
+        if (count($matches) !== 1) {
+            throw $vague;
+        }
+
+        $patient = $matches[0];
+        $orgId   = (int) $patient['organization_id'];
+
+        if ($this->users->emailExists($email)) {
+            throw new ConflictException(
+                'An account with that email already exists. Sign in instead, '
+                . 'and ask the clinic to attach your record.'
+            );
+        }
+
+        $role = $this->roles->findSystemRole('patient');
+        if ($role === null) {
+            throw new \RuntimeException('System role "patient" is missing — run database/seed.php');
+        }
+
+        $name = isset($data['name']) && trim((string) $data['name']) !== ''
+            ? trim((string) $data['name'])
+            : trim($patient['first_name'] . ' ' . $patient['last_name']);
+
+        // One transaction: an account without its membership, or a membership
+        // without its chart, is worse than no account at all.
+        $user = Database::transaction(function () use (
+            $email, $name, $patient, $data, $orgId, $role
+        ): array {
+            $created = $this->users->create([
+                'name'       => $name,
+                'email'      => $email,
+                'phone'      => $patient['phone'] ?? null,
+                'password'   => UserRepository::hashPassword((string) $data['password']),
+                'locale'     => $data['locale'] ?? 'en',
+                'status'     => 'active',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $userId = (int) $created['id'];
+
+            $this->rbac->addMember($orgId, $userId, (int) $role['id'], 'Patient');
+
+            (new \App\Repositories\PatientRepository())
+                ->linkAccountIfUnclaimed((int) $patient['id'], $userId);
+
+            return $created;
+        });
+
+        $this->audit->logAuth($request, 'register', (int) $user['id']);
+
+        $tokens = $this->tokens->issuePair((int) $user['id'], $orgId, $this->deviceContext($request));
+
+        return [
+            'user'          => $this->publicUser($user),
+            'organizations' => $this->rbac->membershipsFor((int) $user['id']),
+            'auth'          => $tokens,
+        ];
+    }
+
+    /**
      * Email + password login.
      *
      * @param array<string,mixed> $data validated: email, password, organization_id?
@@ -443,20 +543,17 @@ final class AuthService
             . "for it, you can ignore this message — your password has not changed.";
 
         try {
-            Database::statement(
-                'INSERT INTO notifications
-                    (organization_id, user_id, channel, event, title, body,
-                     to_address, status, created_at, updated_at)
-                 VALUES (NULL, :uid, \'email\', \'account.password_reset\',
-                         :title, :body, :to, \'queued\', :now, :now)',
-                [
-                    'uid'   => $userId,
-                    'title' => 'Your MediFlow reset code',
-                    'body'  => $body,
-                    'to'    => $email,
-                    'now'   => now(),
-                ],
-            );
+            // organization_id stays NULL: a reset code belongs to the person,
+            // not to any clinic they happen to work in.
+            (new \App\Repositories\NotificationRepository())->queue([
+                'organization_id' => null,
+                'user_id'         => $userId,
+                'channel'         => 'email',
+                'event'           => 'account.password_reset',
+                'title'           => 'Your MediFlow reset code',
+                'body'            => $body,
+                'to_address'      => $email,
+            ]);
         } catch (\Throwable $e) {
             // The code is already saved; a mail failure must not lose it, and
             // the person can always ask again.

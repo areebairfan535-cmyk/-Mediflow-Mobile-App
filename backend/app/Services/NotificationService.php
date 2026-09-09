@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Core\Database;
 use App\Core\Service;
+use App\Repositories\NotificationRepository;
+use App\Repositories\PatientRepository;
 
 /**
  * Notification engine (§20).
@@ -22,6 +23,11 @@ use App\Core\Service;
  */
 final class NotificationService extends Service
 {
+    private function notifications(): NotificationRepository
+    {
+        return new NotificationRepository();
+    }
+
     /**
      * Event catalogue from §20, with the channels each one uses.
      *
@@ -101,12 +107,9 @@ final class NotificationService extends Service
             return;
         }
 
-        $patient = Database::selectOne(
-            'SELECT p.id, p.user_id, p.email, p.phone
-               FROM patients p
-              WHERE p.organization_id = :org AND p.id = :id',
-            ['org' => $this->requireOrganization(), 'id' => $patientId],
-        );
+        $patient = (new PatientRepository())
+            ->forOrganization($this->requireOrganization())
+            ->contactFor($patientId);
 
         if ($patient === null || $patient['user_id'] === null) {
             return;
@@ -144,28 +147,12 @@ final class NotificationService extends Service
     private function queue(array $data): void
     {
         try {
-            Database::statement(
-                'INSERT INTO notifications
-                    (organization_id, user_id, channel, event, title, body,
-                     subject_type, subject_id, payload, to_address, status,
-                     scheduled_for, created_at, updated_at)
-                 VALUES (:org, :uid, :channel, :event, :title, :body,
-                         :stype, :sid, :payload, :to, \'queued\', :sched, :now, :now)',
-                [
-                    'org'     => $this->requireOrganization(),
-                    'uid'     => $data['user_id'],
-                    'channel' => $data['channel'],
-                    'event'   => $data['event'],
-                    'title'   => $data['title'],
-                    'body'    => $data['body'],
-                    'stype'   => $data['subject_type'],
-                    'sid'     => $data['subject_id'],
-                    'payload' => json_encode($data['payload'], JSON_UNESCAPED_UNICODE),
-                    'to'      => $data['to_address'],
-                    'sched'   => $data['scheduled_for'],
-                    'now'     => now(),
-                ],
-            );
+            // Overrides on the left: `+` keeps the left-hand keys, and the
+            // payload must reach the row encoded rather than as an array.
+            $this->notifications()->queue([
+                'organization_id' => $this->requireOrganization(),
+                'payload'         => json_encode($data['payload'], JSON_UNESCAPED_UNICODE),
+            ] + $data);
         } catch (\Throwable $e) {
             // A notification must never break the thing it is describing.
             error_log('[notify] queue failed: ' . $e->getMessage());
@@ -197,26 +184,7 @@ final class NotificationService extends Service
 
     public function inbox(int $userId, bool $unreadOnly = false, int $limit = 50): array
     {
-        $where = [
-            'user_id = :uid',
-            "channel = 'in_app'",
-            'dismissed_at IS NULL',
-            "(scheduled_for IS NULL OR scheduled_for <= UTC_TIMESTAMP())",
-            'created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ' . self::INBOX_DAYS . ' DAY)',
-        ];
-        if ($unreadOnly) {
-            $where[] = 'read_at IS NULL';
-        }
-
-        return Database::select(
-            'SELECT id, event, title, body, subject_type, subject_id,
-                    read_at, created_at
-               FROM notifications
-              WHERE ' . implode(' AND ', $where) . '
-              ORDER BY created_at DESC
-              LIMIT ' . max(1, min(200, $limit)),
-            ['uid' => $userId],
-        );
+        return $this->notifications()->inbox($userId, $unreadOnly, $limit);
     }
 
     /**
@@ -230,60 +198,17 @@ final class NotificationService extends Service
      */
     public function dismiss(int $userId, ?int $id = null, ?array $ids = null, bool $everything = false): int
     {
-        $sql = 'UPDATE notifications SET dismissed_at = :now, updated_at = :now
-                 WHERE user_id = :uid AND channel = \'in_app\' AND dismissed_at IS NULL';
-        $args = ['now' => now(), 'uid' => $userId];
-
-        if ($id !== null) {
-            $sql        .= ' AND id = :id';
-            $args['id']  = $id;
-        } elseif ($ids !== null) {
-            // A hand-picked set. The user_id predicate above still applies, so
-            // an id belonging to somebody else simply matches nothing.
-            $ids = array_values(array_unique(array_map('intval', $ids)));
-            if ($ids === []) {
-                return 0;
-            }
-            $placeholders = [];
-            foreach ($ids as $i => $value) {
-                $placeholders[]      = ':id' . $i;
-                $args['id' . $i]     = $value;
-            }
-            $sql .= ' AND id IN (' . implode(', ', $placeholders) . ')';
-        } elseif (!$everything) {
-            $sql .= ' AND read_at IS NOT NULL';
-        }
-        // $everything: no further predicate — the whole inbox goes, read or
-        // not. The user asked for an empty inbox, and hiding half of it while
-        // reporting success is the sort of "helpfulness" nobody wants.
-
-        return Database::statement($sql, $args);
+        return $this->notifications()->dismiss($userId, $id, $ids, $everything);
     }
 
     public function unreadCount(int $userId): int
     {
-        $row = Database::selectOne(
-            'SELECT COUNT(*) AS c FROM notifications
-              WHERE user_id = :uid AND channel = \'in_app\' AND read_at IS NULL
-                AND dismissed_at IS NULL
-                AND (scheduled_for IS NULL OR scheduled_for <= UTC_TIMESTAMP())',
-            ['uid' => $userId],
-        );
-        return (int) ($row['c'] ?? 0);
+        return $this->notifications()->unreadCount($userId);
     }
 
     /** Mark one notification read, or all of them when $id is null. */
     public function markRead(int $userId, ?int $id = null): int
     {
-        $sql = 'UPDATE notifications SET read_at = :now, status = \'read\', updated_at = :now
-                 WHERE user_id = :uid AND channel = \'in_app\' AND read_at IS NULL';
-        $args = ['now' => now(), 'uid' => $userId];
-
-        if ($id !== null) {
-            $sql        .= ' AND id = :id';
-            $args['id']  = $id;
-        }
-
-        return Database::statement($sql, $args);
+        return $this->notifications()->markRead($userId, $id);
     }
 }

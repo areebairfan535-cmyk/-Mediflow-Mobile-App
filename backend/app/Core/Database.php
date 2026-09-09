@@ -84,6 +84,25 @@ final class Database
     }
 
     /**
+     * Can we reach the database at all?
+     *
+     * The liveness probe used to ask this with `SELECT 1` written out in
+     * HealthController, which left the health endpoint as the one controller
+     * in the codebase holding SQL. Connectivity is this layer's own business
+     * rather than a query about anything, so it belongs here — and §18's rule
+     * survives without the probe losing what it checks.
+     */
+    public static function ping(): bool
+    {
+        try {
+            self::pdo()->query('SELECT 1');
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
      * Run a prepared statement and return all rows.
      *
      * @param array<string|int, mixed> $bindings

@@ -9,6 +9,7 @@ use App\Core\Request;
 use App\Core\ValidationException;
 use App\Repositories\ClinicalRepository;
 use App\Services\AuditService;
+use App\Services\NotificationService;
 use App\Services\PatientService;
 
 /**
@@ -34,6 +35,42 @@ final class ClinicalController extends Controller
         ]);
 
         $this->ok(['lab_orders' => $this->repo($request)->labOrders($filters)]);
+    }
+
+    /** One lab order and everything reported against it (§19). */
+    public function showLabOrder(Request $request): never
+    {
+        $order = $this->repo($request)->findLabOrderDetailed($request->intParam('id'));
+
+        if ($order === null) {
+            throw new NotFoundException('Lab order not found');
+        }
+
+        (new AuditService())->logPatientAccess(
+            $request, (int) $order['patient_id'], 'lab_order', (int) $order['id'],
+        );
+
+        $this->ok(['lab_order' => $order]);
+    }
+
+    /**
+     * Results across orders (§19).
+     *
+     * The order list already carries each order's results, but it cannot
+     * answer "has anything come back abnormal today" — an order holding one
+     * critical value looks like every other completed order. `?flag=critical`
+     * can.
+     */
+    public function labResults(Request $request): never
+    {
+        $filters = $this->validateQuery($request, [
+            'patient_id' => 'nullable|integer',
+            'flag'       => 'nullable|in:normal,low,high,critical',
+            'from'       => 'nullable|date',
+            'to'         => 'nullable|date',
+        ]);
+
+        $this->ok(['lab_results' => $this->repo($request)->labResults($filters)]);
     }
 
     /** Body: { results: [{test_name, value, unit, reference_range, flag, comments}, ...] } */
@@ -75,6 +112,24 @@ final class ClinicalController extends Controller
             ['status' => 'completed', 'results' => count($results)],
             (int) $order['patient_id'],
         );
+
+        // §20 lab.result_ready. Results that sit in the system unannounced are
+        // the reason people ring the clinic to ask whether they are back yet.
+        // Outside the write, and swallowed if it fails: the results are
+        // recorded either way, and a lost notification is not worth losing them.
+        try {
+            (new NotificationService($request->organizationId(), $request->userId()))->notifyPatient(
+                (int) $order['patient_id'],
+                'lab.result_ready',
+                [
+                    'order_no'     => $order['order_no'] ?? (string) $orderId,
+                    'subject_type' => 'lab_order',
+                    'subject_id'   => $orderId,
+                ],
+            );
+        } catch (\Throwable $e) {
+            error_log('[notify] lab result notification failed: ' . $e->getMessage());
+        }
 
         $this->ok(['lab_orders' => $repo->labOrders(['patient_id' => (int) $order['patient_id']])]);
     }

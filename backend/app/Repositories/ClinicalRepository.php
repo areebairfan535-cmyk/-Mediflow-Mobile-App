@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Medication;
 
 /**
  * The reference and per-patient clinical lists that do not warrant a
@@ -16,15 +17,10 @@ use App\Core\Repository;
  */
 final class ClinicalRepository extends Repository
 {
+    protected string $model = Medication::class;
     // The base class needs a table for its generic helpers; every method here
     // names its own table explicitly.
-    protected string $table = 'medications';
 
-    protected array $fillable = [
-        'name', 'brand_name', 'form', 'strength',
-        'default_dosage', 'default_frequency', 'default_duration',
-        'is_active', 'created_at', 'updated_at',
-    ];
 
     // ---------------- medication catalogue ----------------
 
@@ -88,12 +84,21 @@ final class ClinicalRepository extends Repository
         ) ?? [];
     }
 
-    public function deactivateAllergy(int $patientId, int $allergyId): bool
+    /**
+     * §5: who took it off the chart, not only when. An allergy that quietly
+     * stopped being an allergy is exactly the change somebody asks about
+     * afterwards, and the answer belongs on the row rather than only in the
+     * audit log nobody opens mid-consultation.
+     */
+    public function deactivateAllergy(int $patientId, int $allergyId, ?int $actorId = null): bool
     {
         return Database::statement(
-            'UPDATE allergies SET is_active = 0, updated_at = :now
+            'UPDATE allergies SET is_active = 0, updated_by = :by, updated_at = :now
               WHERE organization_id = :org AND patient_id = :pid AND id = :id',
-            ['now' => now(), 'org' => $this->scopeBinding(), 'pid' => $patientId, 'id' => $allergyId],
+            [
+                'by' => $actorId, 'now' => now(),
+                'org' => $this->scopeBinding(), 'pid' => $patientId, 'id' => $allergyId,
+            ],
         ) > 0;
     }
 
@@ -137,13 +142,19 @@ final class ClinicalRepository extends Repository
         ) ?? [];
     }
 
-    public function setConditionStatus(int $patientId, int $conditionId, string $status): bool
-    {
+    /** §5: who moved it from active to resolved, and back. */
+    public function setConditionStatus(
+        int $patientId,
+        int $conditionId,
+        string $status,
+        ?int $actorId = null,
+    ): bool {
         return Database::statement(
-            'UPDATE medical_conditions SET status = :status, updated_at = :now
+            'UPDATE medical_conditions
+                SET status = :status, updated_by = :by, updated_at = :now
               WHERE organization_id = :org AND patient_id = :pid AND id = :id',
             [
-                'status' => $status, 'now' => now(),
+                'status' => $status, 'by' => $actorId, 'now' => now(),
                 'org' => $this->scopeBinding(), 'pid' => $patientId, 'id' => $conditionId,
             ],
         ) > 0;
@@ -194,6 +205,93 @@ final class ClinicalRepository extends Repository
         return Database::selectOne(
             'SELECT * FROM lab_orders WHERE organization_id = :org AND id = :id',
             ['org' => $this->scopeBinding(), 'id' => $id],
+        );
+    }
+
+    /**
+     * One lab order, as a person would want to read it (§19).
+     *
+     * findLabOrder() returns the bare row and exists for permission checks.
+     * This is the one for a screen: who it is for, who ordered it, and what
+     * came back.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function findLabOrderDetailed(int $id): ?array
+    {
+        $order = Database::selectOne(
+            'SELECT lo.*,
+                    CONCAT(p.first_name, \' \', p.last_name) AS patient_name, p.mrn,
+                    u.name AS doctor_name, e.encounter_no
+               FROM lab_orders lo
+               JOIN patients p        ON p.id = lo.patient_id
+               LEFT JOIN doctors d    ON d.id = lo.doctor_id
+               LEFT JOIN users u      ON u.id = d.user_id
+               LEFT JOIN encounters e ON e.id = lo.encounter_id
+              WHERE lo.organization_id = :org AND lo.id = :id',
+            ['org' => $this->scopeBinding(), 'id' => $id],
+        );
+
+        if ($order === null) {
+            return null;
+        }
+
+        $order['results'] = Database::select(
+            'SELECT * FROM lab_results
+              WHERE organization_id = :org AND lab_order_id = :lid ORDER BY id',
+            ['org' => $this->scopeBinding(), 'lid' => $id],
+        );
+
+        return $order;
+    }
+
+    /**
+     * Results themselves, across orders (§19).
+     *
+     * The order-centric list cannot answer the question a clinician actually
+     * asks — "has anything come back abnormal?" — because an order carrying one
+     * critical value among eight normal ones looks like any other completed
+     * order. This is result-first, so `?flag=critical` is a real query.
+     *
+     * @param array{patient_id?:int,flag?:string,from?:string,to?:string} $filters
+     * @return list<array<string,mixed>>
+     */
+    public function labResults(array $filters): array
+    {
+        $where    = ['lr.organization_id = :org'];
+        $bindings = ['org' => $this->scopeBinding()];
+
+        if (!empty($filters['patient_id'])) {
+            $where[]         = 'lr.patient_id = :pid';
+            $bindings['pid'] = (int) $filters['patient_id'];
+        }
+        if (!empty($filters['flag'])) {
+            $where[]          = 'lr.flag = :flag';
+            $bindings['flag'] = $filters['flag'];
+        }
+        if (!empty($filters['from'])) {
+            $where[]          = 'lr.reported_at >= :from';
+            $bindings['from'] = $filters['from'] . ' 00:00:00';
+        }
+        if (!empty($filters['to'])) {
+            $where[]        = 'lr.reported_at <= :to';
+            $bindings['to'] = $filters['to'] . ' 23:59:59';
+        }
+
+        return Database::select(
+            'SELECT lr.*, lo.order_no, lo.status AS order_status, lo.priority,
+                    CONCAT(p.first_name, \' \', p.last_name) AS patient_name, p.mrn,
+                    u.name AS reported_by_name
+               FROM lab_results lr
+               JOIN lab_orders lo ON lo.id = lr.lab_order_id
+               JOIN patients p    ON p.id = lr.patient_id
+               LEFT JOIN users u  ON u.id = lr.reported_by
+              WHERE ' . implode(' AND ', $where) . '
+              -- Worst first: a critical value is why anyone opens this screen.
+              ORDER BY FIELD(lr.flag, \'critical\',\'high\',\'low\',\'normal\'),
+                       lr.reported_at DESC
+              LIMIT 200',
+            $bindings,
         );
     }
 
@@ -264,9 +362,10 @@ final class ClinicalRepository extends Repository
 
             Database::statement(
                 'UPDATE lab_orders
-                    SET status = \'completed\', completed_at = :now, updated_at = :now
+                    SET status = \'completed\', completed_at = :now,
+                        updated_by = :by, updated_at = :now2
                   WHERE organization_id = :org AND id = :id',
-                ['now' => now(), 'org' => $org, 'id' => $labOrderId],
+                ['now' => now(), 'now2' => now(), 'by' => $actorId, 'org' => $org, 'id' => $labOrderId],
             );
         });
     }

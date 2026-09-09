@@ -4,9 +4,15 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
-use App\Core\Database;
 use App\Core\Request;
+use App\Core\ValidationException;
 use App\Repositories\OrganizationRepository;
+use App\Services\AuditService;
+use App\Services\PlatformService;
+use App\Services\PlatformSettings;
+use App\Services\RbacService;
+use App\Services\SubscriptionService;
+use App\Services\Payments\PaymentGateways;
 
 /**
  * Super Admin Panel (§21) — the only cross-tenant surface in the API.
@@ -14,6 +20,12 @@ use App\Repositories\OrganizationRepository;
  * These routes carry 'platform' instead of 'tenant', and are the sole place
  * withoutTenantScope() is reachable over HTTP. Keeping that concentrated in
  * one controller is what makes the tenancy guarantee reviewable.
+ *
+ * §18: no SQL here. This controller used to hold twenty-four raw statements;
+ * they moved down to PlatformRepository / PlanRepository / CountryRepository,
+ * and the rules around them to PlatformService. What is left is what a
+ * controller is for — validate the input, call one thing, record what happened,
+ * answer.
  *
  * GET /api/v1/platform/dashboard
  * GET /api/v1/platform/organizations
@@ -24,48 +36,7 @@ final class PlatformController extends Controller
 {
     public function dashboard(Request $request): never
     {
-        // Counters the panel needs per §21. Each is a scalar aggregate; the
-        // dashboard is read-mostly so plain COUNTs are fine at this scale.
-        $counts = Database::selectOne(
-            'SELECT
-               (SELECT COUNT(*) FROM organizations WHERE status = \'active\')      AS active_organizations,
-               (SELECT COUNT(*) FROM organizations)                               AS total_organizations,
-               (SELECT COUNT(*) FROM users WHERE status = \'active\')             AS active_users,
-               (SELECT COUNT(*) FROM doctors)                                     AS doctors,
-               (SELECT COUNT(*) FROM patients WHERE status = \'active\')          AS patients,
-               (SELECT COUNT(*) FROM appointments)                                AS appointments,
-               (SELECT COUNT(*) FROM invoices)                                    AS invoices,
-               (SELECT COUNT(*) FROM claims)                                      AS claims',
-        ) ?? [];
-
-        $money = Database::selectOne(
-            'SELECT
-               COALESCE(SUM(CASE WHEN status IN (\'issued\',\'partially_paid\',\'paid\')
-                                 THEN grand_total ELSE 0 END), 0) AS billed_total,
-               COALESCE(SUM(paid_total), 0)                        AS collected_total,
-               COALESCE(SUM(CASE WHEN status IN (\'issued\',\'partially_paid\',\'overdue\')
-                                 THEN grand_total - paid_total ELSE 0 END), 0) AS outstanding_total
-               FROM invoices',
-        ) ?? [];
-
-        $failedPayments = (int) (Database::selectOne(
-            'SELECT COUNT(*) AS c FROM payments WHERE status = \'failed\'',
-        )['c'] ?? 0);
-
-        $subscriptions = Database::select(
-            'SELECT p.name AS plan, s.status, COUNT(*) AS organizations
-               FROM subscriptions s
-               JOIN plans p ON p.id = s.plan_id
-              GROUP BY p.name, s.status
-              ORDER BY p.name',
-        );
-
-        $this->ok([
-            'counts'         => array_map('intval', $counts),
-            'money'          => array_map('money', $money),
-            'failed_payments' => $failedPayments,
-            'subscriptions'  => $subscriptions,
-        ]);
+        $this->ok(PlatformService::for($request)->dashboard());
     }
 
     public function organizations(Request $request): never
@@ -77,51 +48,9 @@ final class PlatformController extends Controller
 
         [$page, $perPage] = $this->pagination($request);
 
-        $where    = [];
-        $bindings = [];
-        if (isset($filters['status'])) {
-            $where[]              = 'o.status = :status';
-            $bindings['status']   = $filters['status'];
-        }
-        if (isset($filters['search'])) {
-            $where[]            = '(o.name LIKE :q OR o.slug LIKE :q OR o.city LIKE :q)';
-            $bindings['q']      = '%' . $filters['search'] . '%';
-        }
-        $clause = $where === [] ? '' : ' WHERE ' . implode(' AND ', $where);
+        $result = PlatformService::for($request)->organizations($filters, $page, $perPage);
 
-        $total = (int) (Database::selectOne(
-            'SELECT COUNT(*) AS c FROM organizations o' . $clause,
-            $bindings,
-        )['c'] ?? 0);
-
-        $offset = ($page - 1) * $perPage;
-
-        $rows = Database::select(
-            'SELECT o.id, o.name, o.slug, o.city, o.status, o.created_at,
-                    c.code AS country_code,
-                    COALESCE(o.currency_code, c.currency_code) AS currency_code,
-                    (SELECT COUNT(*) FROM organization_users ou
-                      WHERE ou.organization_id = o.id AND ou.status = \'active\') AS members,
-                    (SELECT COUNT(*) FROM patients pt
-                      WHERE pt.organization_id = o.id) AS patients,
-                    (SELECT p.name FROM subscriptions s
-                       JOIN plans p ON p.id = s.plan_id
-                      WHERE s.organization_id = o.id
-                      ORDER BY s.id DESC LIMIT 1) AS plan
-               FROM organizations o
-               JOIN countries c ON c.id = o.country_id'
-            . $clause
-            . ' ORDER BY o.created_at DESC
-                LIMIT ' . $perPage . ' OFFSET ' . $offset,
-            $bindings,
-        );
-
-        $this->ok($rows, [
-            'page'      => $page,
-            'per_page'  => $perPage,
-            'total'     => $total,
-            'last_page' => (int) max(1, (int) ceil($total / $perPage)),
-        ]);
+        $this->ok($result['data'], $this->meta($page, $perPage, $result['total']));
     }
 
     public function showOrganization(Request $request): never
@@ -133,7 +62,7 @@ final class PlatformController extends Controller
 
         $this->ok([
             'organization' => $organizations->settings($id),
-            'members'      => (new \App\Services\RbacService())->members($id),
+            'members'      => (new RbacService())->members($id),
             'raw'          => $organization,
         ]);
     }
@@ -154,7 +83,7 @@ final class PlatformController extends Controller
 
         // Filed against the clinic it happened to, not against nobody — being
         // suspended is the single most important line in that clinic's trail.
-        (new \App\Services\AuditService())->logForOrganization(
+        (new AuditService())->logForOrganization(
             $request,
             $id,
             'update',
@@ -173,48 +102,15 @@ final class PlatformController extends Controller
 
     public function plans(Request $request): never
     {
-        $plans = Database::select('SELECT * FROM plans ORDER BY sort_order, price_monthly');
-
-        // Sold-to counts, because "may we retire this plan" is unanswerable
-        // without them and it is the first thing anyone asks.
-        foreach ($plans as $i => $plan) {
-            $plans[$i]['features'] = is_string($plan['features'] ?? null)
-                ? (json_decode($plan['features'], true) ?: [])
-                : ($plan['features'] ?? []);
-
-            $plans[$i]['organizations'] = (int) (Database::selectOne(
-                'SELECT COUNT(*) AS c FROM subscriptions WHERE plan_id = :id',
-                ['id' => (int) $plan['id']],
-            )['c'] ?? 0);
-        }
-
-        $this->ok(['plans' => $plans]);
+        $this->ok(['plans' => PlatformService::for($request)->plans()]);
     }
 
     public function storePlan(Request $request): never
     {
         $data = $this->planInput($request, true);
+        $plan = PlatformService::for($request)->createPlan($data);
 
-        if (Database::selectOne('SELECT id FROM plans WHERE slug = :slug', ['slug' => $data['slug']])) {
-            throw new \App\Core\ConflictException('A plan with this slug already exists.');
-        }
-
-        Database::statement(
-            'INSERT INTO plans
-                (slug, name, description, price_monthly, price_yearly, currency_code,
-                 max_doctors, max_staff, max_patients, max_storage_mb,
-                 max_invoices_month, max_appointments_month, max_ai_calls_month,
-                 features, is_active, sort_order, created_at, updated_at)
-             VALUES (:slug, :name, :description, :price_monthly, :price_yearly, :currency_code,
-                     :max_doctors, :max_staff, :max_patients, :max_storage_mb,
-                     :max_invoices_month, :max_appointments_month, :max_ai_calls_month,
-                     :features, :is_active, :sort_order, :now, :now)',
-            $data + ['now' => now()],
-        );
-
-        $plan = Database::selectOne('SELECT * FROM plans WHERE slug = :slug', ['slug' => $data['slug']]);
-
-        (new \App\Services\AuditService())->log(
+        (new AuditService())->log(
             $request, 'create', 'plan', (int) $plan['id'], null, ['slug' => $data['slug']],
         );
 
@@ -223,39 +119,23 @@ final class PlatformController extends Controller
 
     public function updatePlan(Request $request): never
     {
-        $id   = $request->intParam('id');
-        $plan = Database::selectOne('SELECT * FROM plans WHERE id = :id', ['id' => $id]);
+        $id     = $request->intParam('id');
+        $data   = $this->planInput($request, false);
+        $result = PlatformService::for($request)->updatePlan($id, $data);
 
-        if ($plan === null) {
-            throw new \App\Core\NotFoundException('Plan not found');
-        }
-
-        $data = $this->planInput($request, false);
-
-        // The slug is the identity clients key off; renaming it would silently
-        // repoint anything that stored it. Name and prices are editable.
-        unset($data['slug']);
-
-        $sets = [];
-        foreach (array_keys($data) as $column) {
-            $sets[] = "$column = :$column";
-        }
-        $sets[] = 'updated_at = :now';
-
-        Database::statement(
-            'UPDATE plans SET ' . implode(', ', $sets) . ' WHERE id = :id',
-            $data + ['now' => now(), 'id' => $id],
-        );
-
-        $updated = Database::selectOne('SELECT * FROM plans WHERE id = :id', ['id' => $id]);
-
-        (new \App\Services\AuditService())->log(
+        (new AuditService())->log(
             $request, 'update', 'plan', $id,
-            ['name' => $plan['name'], 'price_monthly' => $plan['price_monthly']],
-            ['name' => $updated['name'], 'price_monthly' => $updated['price_monthly']],
+            [
+                'name'          => $result['before']['name'],
+                'price_monthly' => $result['before']['price_monthly'],
+            ],
+            [
+                'name'          => $result['after']['name'],
+                'price_monthly' => $result['after']['price_monthly'],
+            ],
         );
 
-        $this->ok(['plan' => $updated]);
+        $this->ok(['plan' => $result['after']]);
     }
 
     /**
@@ -273,10 +153,10 @@ final class PlatformController extends Controller
 
         (new OrganizationRepository())->withoutTenantScope()->findOrFail($id, 'Organization');
 
-        $result = (new \App\Services\SubscriptionService($id, $request->userId()))
+        $result = (new SubscriptionService($id, $request->userId()))
             ->changePlan((int) $data['plan_id'], $id);
 
-        (new \App\Services\AuditService())->logForOrganization(
+        (new AuditService())->logForOrganization(
             $request, $id, 'update', 'subscription', (int) $result['subscription']['id'],
             null, ['plan' => $result['plan']['slug'], 'changed_by' => 'platform'],
         );
@@ -303,45 +183,9 @@ final class PlatformController extends Controller
 
         [$page, $perPage] = $this->pagination($request);
 
-        $where    = ['1 = 1'];
-        $bindings = [];
+        $result = PlatformService::for($request)->auditLogs($filters, $page, $perPage);
 
-        foreach (['organization_id' => 'org', 'user_id' => 'uid'] as $field => $bind) {
-            if (!empty($filters[$field])) {
-                $where[]         = "a.$field = :$bind";
-                $bindings[$bind] = (int) $filters[$field];
-            }
-        }
-        foreach (['action', 'resource_type'] as $field) {
-            if (!empty($filters[$field])) {
-                $where[]          = "a.$field = :$field";
-                $bindings[$field] = $filters[$field];
-            }
-        }
-
-        $sql   = implode(' AND ', $where);
-        $total = (int) (Database::selectOne(
-            "SELECT COUNT(*) AS c FROM audit_logs a WHERE $sql",
-            $bindings,
-        )['c'] ?? 0);
-
-        $rows = Database::select(
-            "SELECT a.*, u.name AS user_name, u.email AS user_email, o.name AS organization_name
-               FROM audit_logs a
-               LEFT JOIN users u         ON u.id = a.user_id
-               LEFT JOIN organizations o ON o.id = a.organization_id
-              WHERE $sql
-              ORDER BY a.id DESC
-              LIMIT " . (int) $perPage . ' OFFSET ' . (int) (($page - 1) * $perPage),
-            $bindings,
-        );
-
-        $this->ok($rows, [
-            'page'      => $page,
-            'per_page'  => $perPage,
-            'total'     => $total,
-            'last_page' => (int) max(1, (int) ceil($total / $perPage)),
-        ]);
+        $this->ok($result['data'], $this->meta($page, $perPage, $result['total']));
     }
 
     // ===============================================================
@@ -355,38 +199,15 @@ final class PlatformController extends Controller
      */
     public function countries(Request $request): never
     {
-        $countries = Database::select('SELECT * FROM countries ORDER BY name');
-
-        foreach ($countries as $i => $country) {
-            $countries[$i]['organizations'] = (int) (Database::selectOne(
-                'SELECT COUNT(*) AS c FROM organizations WHERE country_id = :id',
-                ['id' => (int) $country['id']],
-            )['c'] ?? 0);
-        }
-
-        $this->ok(['countries' => $countries]);
+        $this->ok(['countries' => PlatformService::for($request)->countries()]);
     }
 
     public function storeCountry(Request $request): never
     {
-        $data = $this->countryInput($request);
+        $data    = $this->countryInput($request);
+        $country = PlatformService::for($request)->createCountry($data);
 
-        if (Database::selectOne('SELECT id FROM countries WHERE code = :code', ['code' => $data['code']])) {
-            throw new \App\Core\ConflictException('That country is already configured.');
-        }
-
-        Database::statement(
-            'INSERT INTO countries
-                (code, name, currency_code, currency_symbol, timezone, date_format,
-                 default_tax_rate, invoice_prefix, is_active, created_at, updated_at)
-             VALUES (:code, :name, :currency_code, :currency_symbol, :timezone, :date_format,
-                     :default_tax_rate, :invoice_prefix, :is_active, :now, :now)',
-            $data + ['now' => now()],
-        );
-
-        $country = Database::selectOne('SELECT * FROM countries WHERE code = :code', ['code' => $data['code']]);
-
-        (new \App\Services\AuditService())->log(
+        (new AuditService())->log(
             $request, 'create', 'country', (int) $country['id'], null, ['code' => $data['code']],
         );
 
@@ -395,33 +216,20 @@ final class PlatformController extends Controller
 
     public function updateCountry(Request $request): never
     {
-        $id      = $request->intParam('id');
-        $country = Database::selectOne('SELECT * FROM countries WHERE id = :id', ['id' => $id]);
+        $id     = $request->intParam('id');
+        $data   = $this->countryInput($request);
+        $result = PlatformService::for($request)->updateCountry($id, $data);
 
-        if ($country === null) {
-            throw new \App\Core\NotFoundException('Country not found');
-        }
-
-        $data = $this->countryInput($request);
-        unset($data['code']);        // the code is the identity, same as a plan slug
-
-        $sets = [];
-        foreach (array_keys($data) as $column) {
-            $sets[] = "$column = :$column";
-        }
-        $sets[] = 'updated_at = :now';
-
-        Database::statement(
-            'UPDATE countries SET ' . implode(', ', $sets) . ' WHERE id = :id',
-            $data + ['now' => now(), 'id' => $id],
-        );
-
-        $updated = Database::selectOne('SELECT * FROM countries WHERE id = :id', ['id' => $id]);
-
-        (new \App\Services\AuditService())->log(
+        (new AuditService())->log(
             $request, 'update', 'country', $id,
-            ['default_tax_rate' => $country['default_tax_rate'], 'is_active' => $country['is_active']],
-            ['default_tax_rate' => $updated['default_tax_rate'], 'is_active' => $updated['is_active']],
+            [
+                'default_tax_rate' => $result['before']['default_tax_rate'],
+                'is_active'        => $result['before']['is_active'],
+            ],
+            [
+                'default_tax_rate' => $result['after']['default_tax_rate'],
+                'is_active'        => $result['after']['is_active'],
+            ],
         );
 
         // Be exact about the blast radius. A clinic's own currency, timezone,
@@ -431,13 +239,87 @@ final class PlatformController extends Controller
         // change, and it is why invoices snapshot their rate at issue: nothing
         // already billed is re-rated, only what is billed next.
         $this->ok([
-            'country' => $updated,
+            'country' => $result['after'],
             'note'    => 'Clinics in this market that have not overridden a setting follow it '
                        . 'from now on. Invoices already issued keep the rate they were issued at.',
         ]);
     }
 
     // ---------------------------------------------------------------
+
+    /**
+     * The deployment's own settings (§21).
+     *
+     * Each one comes back with its label, type and allowed values, so the panel
+     * renders the form from this rather than keeping its own copy of the list.
+     * Add a setting in PlatformSettings and it appears on the screen.
+     *
+     * The payment section also reports whether credentials are present. It
+     * never returns them: choosing the gateway is a setting, and the key that
+     * proves the account is yours is not.
+     */
+    public function settings(Request $request): never
+    {
+        $gateway = PaymentGateways::status();
+
+        $this->ok([
+            'settings' => PlatformSettings::describe(),
+            'payment'  => [
+                'gateway'              => $gateway['gateway'],
+                'configured'           => $gateway['configured'],
+                'mode'                 => $gateway['mode'],
+                'reason'               => $gateway['reason'],
+                'credentials_location' => 'backend/.env (PAYMENT_CLIENT_ID, PAYMENT_SECRET_KEY)',
+            ],
+        ]);
+    }
+
+    public function updateSettings(Request $request): never
+    {
+        $values = $request->body['settings'] ?? null;
+        if (!is_array($values) || $values === []) {
+            throw new ValidationException(
+                ['settings' => ['Send a settings object with at least one key.']]
+            );
+        }
+
+        $before  = PlatformSettings::describe();
+        $written = PlatformSettings::put($values, $request->userId());
+
+        if ($written === []) {
+            throw new ValidationException(
+                ['settings' => ['None of those are settings this version knows about.']]
+            );
+        }
+
+        // Worth auditing in full: one of these decides whether real cards are
+        // charged, and "who turned live mode on" is a question that gets asked.
+        (new AuditService())->log(
+            $request, 'update', 'platform_settings', 0,
+            array_column($before, 'value', 'key'),
+            array_intersect_key($values, array_flip($written)),
+        );
+
+        $this->ok([
+            'settings' => PlatformSettings::describe(),
+            'updated'  => $written,
+        ]);
+    }
+
+    // ---------------------------------------------------------------
+
+    /**
+     * @return array{page:int, per_page:int, total:int, last_page:int}
+     */
+    private function meta(int $page, int $perPage, int $total): array
+    {
+        return [
+            'page'      => $page,
+            'per_page'  => $perPage,
+            'total'     => $total,
+            'last_page' => (int) max(1, (int) ceil($total / $perPage)),
+        ];
+    }
 
     /**
      * Plan fields, with NULL meaning unlimited on every ceiling.

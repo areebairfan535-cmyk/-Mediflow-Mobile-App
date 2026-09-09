@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace App\Services\Notifications;
 
-use App\Core\Database;
+use App\Repositories\NotificationRepository;
 
 /**
  * Sends what NotificationService queued (§20).
@@ -31,7 +31,16 @@ final class Dispatcher
     /** @var array<string,Channel> */
     private array $channels;
 
-    public function __construct(?array $channels = null)
+    private NotificationRepository $notifications;
+
+    /**
+     * Both dependencies are injectable so a test can drive this with fake
+     * channels and a fake queue, rather than a live database and an SMTP
+     * server (§12 dependency injection).
+     *
+     * @param array<string,Channel>|null $channels
+     */
+    public function __construct(?array $channels = null, ?NotificationRepository $notifications = null)
     {
         $this->channels = $channels ?? [
             'in_app' => new InAppChannel(),
@@ -40,6 +49,8 @@ final class Dispatcher
             'push'   => new PushChannel(),
             // WhatsApp is §20's "future"; it slots in here as one more class.
         ];
+
+        $this->notifications = $notifications ?? new NotificationRepository();
     }
 
     /**
@@ -49,15 +60,7 @@ final class Dispatcher
      */
     public function run(int $limit = 100): array
     {
-        $due = Database::select(
-            'SELECT * FROM notifications
-              WHERE status = \'queued\'
-                AND attempts < :max
-                AND (scheduled_for IS NULL OR scheduled_for <= UTC_TIMESTAMP())
-              ORDER BY id
-              LIMIT ' . max(1, min(500, $limit)),
-            ['max' => self::MAX_ATTEMPTS],
-        );
+        $due = $this->notifications->due(self::MAX_ATTEMPTS, $limit);
 
         $counts = ['sent' => 0, 'skipped' => 0, 'failed' => 0, 'gave_up' => 0];
 
@@ -76,20 +79,13 @@ final class Dispatcher
                 $attempts = (int) $notification['attempts'] + 1;
                 $gaveUp   = $attempts >= self::MAX_ATTEMPTS;
 
-                Database::statement(
-                    'UPDATE notifications
-                        SET attempts = :attempts, error = :error,
-                            status = :status, updated_at = :now
-                      WHERE id = :id',
-                    [
-                        'attempts' => $attempts,
-                        'error'    => substr($e->getMessage(), 0, 500),
-                        // Still queued while there are attempts left; the next
-                        // run picks it up.
-                        'status'   => $gaveUp ? 'failed' : 'queued',
-                        'now'      => now(),
-                        'id'       => (int) $notification['id'],
-                    ],
+                // Still queued while there are attempts left; the next run
+                // picks it up.
+                $this->notifications->markAttemptFailed(
+                    (int) $notification['id'],
+                    $attempts,
+                    $e->getMessage(),
+                    $gaveUp,
                 );
 
                 $counts[$gaveUp ? 'gave_up' : 'failed']++;
@@ -124,18 +120,11 @@ final class Dispatcher
         // SKIPPED is recorded as 'sent' with a note rather than left queued:
         // the row is finished with either way, and leaving it queued would mean
         // re-examining it on every run for ever.
-        Database::statement(
-            'UPDATE notifications
-                SET status = \'sent\', sent_at = :now, error = :note,
-                    attempts = attempts + 1, updated_at = :now
-              WHERE id = :id',
-            [
-                'now'  => now(),
-                'note' => $result === Channel::SKIPPED
-                    ? ($note ?? 'Channel not configured — nothing was sent.')
-                    : null,
-                'id'   => (int) $notification['id'],
-            ],
+        $this->notifications->markSent(
+            (int) $notification['id'],
+            $result === Channel::SKIPPED
+                ? ($note ?? 'Channel not configured — nothing was sent.')
+                : null,
         );
     }
 }

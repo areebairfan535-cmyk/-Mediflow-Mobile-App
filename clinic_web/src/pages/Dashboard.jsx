@@ -105,6 +105,11 @@ export default function Dashboard({ session, go }) {
           <Stat label="Waiting" value={state.counts.waiting}
                 hint={state.counts.waiting > 0 ? 'patients arrived' : 'nobody waiting'} />
           <Stat label="Completed" value={state.counts.completed} hint="visits done" />
+          {/* §4 asks for cancellations too. Counted together with no-shows,
+              because an hour nobody turned up for cost the doctor the same as
+              one that was cancelled — the hint says which is which. */}
+          <Stat label="Cancelled" value={state.counts.cancelled}
+                hint={state.counts.cancelled > 0 ? 'incl. no-shows' : 'none today'} />
           <Stat label="This week" value={state.counts.week_total} hint="appointments" />
         </div>
       )}
@@ -141,6 +146,16 @@ export default function Dashboard({ session, go }) {
                   {a.reason || 'No reason given'}
                   {!isDoctor && a.doctor_name ? ` · ${a.doctor_name}` : ''}
                 </div>
+                {/* Why it was cancelled, on the row it belongs to. The count
+                    above says how many; a doctor looking at a gap in their
+                    morning wants to know which one and what happened. */}
+                {['cancelled', 'no_show'].includes(a.status) && (
+                  <div className="why" style={{ color: 'var(--danger, #b3261e)' }}>
+                    {a.status === 'no_show'
+                      ? 'Patient did not arrive'
+                      : a.cancelled_reason || 'Cancelled — no reason recorded'}
+                  </div>
+                )}
               </div>
 
               <Badge>{a.status.replace(/_/g, ' ')}</Badge>

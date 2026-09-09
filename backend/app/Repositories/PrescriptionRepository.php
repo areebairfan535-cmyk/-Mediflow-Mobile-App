@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Prescription;
 
 /**
  * Prescriptions and their line items (§4).
@@ -14,12 +15,7 @@ use App\Core\Repository;
  */
 final class PrescriptionRepository extends Repository
 {
-    protected string $table = 'prescriptions';
-
-    protected array $fillable = [
-        'encounter_id', 'patient_id', 'doctor_id', 'prescription_no', 'status',
-        'general_advice', 'pdf_path', 'issued_at', 'created_by', 'created_at', 'updated_at',
-    ];
+    protected string $model = Prescription::class;
 
     public function nextPrescriptionNo(): string
     {
@@ -113,6 +109,74 @@ final class PrescriptionRepository extends Repository
         );
 
         return $row;
+    }
+
+    /**
+     * The clinic's prescriptions, filtered and paged (§19).
+     *
+     * Items are deliberately NOT loaded here, unlike forPatient(): fifty
+     * prescriptions would mean fifty extra queries, and a list screen shows
+     * how many drugs are on each, not what they are. Hence the count subquery.
+     *
+     * @param array{patient_id?:int,doctor_id?:int,status?:string,from?:string,to?:string} $filters
+     * @return array{data: list<array<string,mixed>>, meta: array<string,int>}
+     */
+    public function search(array $filters, int $page, int $perPage): array
+    {
+        $where    = ['rx.organization_id = :org'];
+        $bindings = ['org' => $this->scopeBinding()];
+
+        foreach (['patient_id' => 'rx.patient_id', 'doctor_id' => 'rx.doctor_id'] as $key => $column) {
+            if (!empty($filters[$key])) {
+                $where[]        = "$column = :$key";
+                $bindings[$key] = (int) $filters[$key];
+            }
+        }
+        if (!empty($filters['status'])) {
+            $where[]            = 'rx.status = :status';
+            $bindings['status'] = $filters['status'];
+        }
+        if (!empty($filters['from'])) {
+            $where[]          = 'rx.created_at >= :from';
+            $bindings['from'] = $filters['from'] . ' 00:00:00';
+        }
+        if (!empty($filters['to'])) {
+            $where[]        = 'rx.created_at <= :to';
+            $bindings['to'] = $filters['to'] . ' 23:59:59';
+        }
+
+        $clause = implode(' AND ', $where);
+
+        $total = (int) (Database::selectOne(
+            "SELECT COUNT(*) AS c FROM prescriptions rx WHERE $clause",
+            $bindings,
+        )['c'] ?? 0);
+
+        $rows = Database::select(
+            "SELECT rx.*, u.name AS doctor_name, d.specialty, e.encounter_no,
+                    CONCAT(p.first_name, ' ', p.last_name) AS patient_name, p.mrn,
+                    (SELECT COUNT(*) FROM prescription_items i
+                      WHERE i.prescription_id = rx.id) AS item_count
+               FROM prescriptions rx
+               JOIN doctors d  ON d.id = rx.doctor_id
+               JOIN users   u  ON u.id = d.user_id
+               JOIN patients p ON p.id = rx.patient_id
+               LEFT JOIN encounters e ON e.id = rx.encounter_id
+              WHERE $clause
+              ORDER BY rx.created_at DESC
+              LIMIT " . (int) $perPage . ' OFFSET ' . (int) (($page - 1) * $perPage),
+            $bindings,
+        );
+
+        return [
+            'data' => $rows,
+            'meta' => [
+                'page'      => $page,
+                'per_page'  => $perPage,
+                'total'     => $total,
+                'last_page' => (int) max(1, (int) ceil($total / $perPage)),
+            ],
+        ];
     }
 
     /** @return list<array<string,mixed>> */

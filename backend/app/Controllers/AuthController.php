@@ -39,6 +39,27 @@ final class AuthController extends Controller
         $this->created((new AuthService())->register($request, $data));
     }
 
+    /**
+     * A patient attaches a login to the chart their clinic already holds (§3).
+     *
+     * Separate from register() on purpose: that one must keep granting no
+     * membership anywhere (§22), and this one grants exactly one — to the
+     * clinic whose record the caller has proved they can identify.
+     */
+    public function claimChart(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'mrn'           => 'required|string|max:32',
+            'date_of_birth' => 'required|date',
+            'email'         => 'required|email|max:255',
+            'password'      => 'required|string|min:8|max:255',
+            'name'          => 'nullable|string|min:2|max:255',
+            'locale'        => 'nullable|string|max:10',
+        ]);
+
+        $this->created((new AuthService())->claimChart($request, $data));
+    }
+
     public function login(Request $request): never
     {
         $data = $this->validate($request, [

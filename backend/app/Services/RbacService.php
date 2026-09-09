@@ -83,18 +83,7 @@ final class RbacService
             throw new ConflictException('This user is already a member of the organization');
         }
 
-        \App\Core\Database::statement(
-            'INSERT INTO organization_users
-                (organization_id, user_id, role_id, job_title, status, joined_at, created_at, updated_at)
-             VALUES (:org, :uid, :role, :title, \'active\', :now, :now, :now)',
-            [
-                'org'   => $organizationId,
-                'uid'   => $userId,
-                'role'  => $roleId,
-                'title' => $jobTitle,
-                'now'   => now(),
-            ],
-        );
+        $this->memberships()->add($organizationId, $userId, $roleId, $jobTitle);
 
         return $this->membership($userId, $organizationId) ?? [];
     }
@@ -119,12 +108,7 @@ final class RbacService
             );
         }
 
-        \App\Core\Database::statement(
-            'UPDATE organization_users
-                SET role_id = :role, updated_at = :now
-              WHERE organization_id = :org AND user_id = :uid',
-            ['role' => $roleId, 'now' => now(), 'org' => $organizationId, 'uid' => $userId],
-        );
+        $this->memberships()->setRole($organizationId, $userId, $roleId);
 
         unset(self::$permissionCache[$roleId]);
 
@@ -144,12 +128,7 @@ final class RbacService
             throw new ConflictException('Cannot disable the only owner of the organization');
         }
 
-        \App\Core\Database::statement(
-            'UPDATE organization_users
-                SET status = :status, updated_at = :now
-              WHERE organization_id = :org AND user_id = :uid',
-            ['status' => $status, 'now' => now(), 'org' => $organizationId, 'uid' => $userId],
-        );
+        $this->memberships()->setStatus($organizationId, $userId, $status);
 
         return $this->membership($userId, $organizationId) ?? [];
     }
@@ -166,23 +145,78 @@ final class RbacService
             throw new ConflictException('Cannot remove the only owner of the organization');
         }
 
-        \App\Core\Database::statement(
-            'DELETE FROM organization_users WHERE organization_id = :org AND user_id = :uid',
-            ['org' => $organizationId, 'uid' => $userId],
-        );
+        $this->memberships()->remove($organizationId, $userId);
+
+        // The employment record goes with the membership. Keeping it would
+        // leave an employee number attached to somebody the clinic no longer
+        // has, and the next person to get that number would collide with it.
+        $this->staff()->remove($organizationId, $userId);
+    }
+
+    // ---------------- employment records (§20) ----------------
+
+    /**
+     * One member's employment details.
+     *
+     * Null when the clinic has not recorded any — which is normal, not an
+     * error. Plenty of small practices never fill this in.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function staffProfile(int $organizationId, int $userId): ?array
+    {
+        $this->requireMember($organizationId, $userId);
+
+        return $this->staff()->forMember($organizationId, $userId);
+    }
+
+    /**
+     * Record or update what the clinic knows about somebody's employment.
+     *
+     * @param array<string,mixed> $data employee_no, department, designation, hired_at
+     * @return array<string,mixed>
+     */
+    public function setStaffProfile(int $organizationId, int $userId, array $data): array
+    {
+        $this->requireMember($organizationId, $userId);
+
+        $employeeNo = trim((string) ($data['employee_no'] ?? ''));
+        if ($employeeNo !== '' && $this->staff()->employeeNoTaken($organizationId, $employeeNo, $userId)) {
+            throw new ConflictException(
+                "Employee number $employeeNo already belongs to somebody else here."
+            );
+        }
+
+        return $this->staff()->put($organizationId, $userId, [
+            'employee_no' => $employeeNo === '' ? null : $employeeNo,
+            'department'  => $data['department']  ?? null,
+            'designation' => $data['designation'] ?? null,
+            'hired_at'    => $data['hired_at']    ?? null,
+        ]);
+    }
+
+    /**
+     * An employment record only means anything for somebody who works here.
+     */
+    private function requireMember(int $organizationId, int $userId): void
+    {
+        if ($this->membership($userId, $organizationId) === null) {
+            throw new NotFoundException('This user is not a member of the organization');
+        }
+    }
+
+    private function memberships(): \App\Repositories\MembershipRepository
+    {
+        return new \App\Repositories\MembershipRepository();
+    }
+
+    private function staff(): \App\Repositories\StaffRepository
+    {
+        return new \App\Repositories\StaffRepository();
     }
 
     private function countByRoleSlug(int $organizationId, string $roleSlug): int
     {
-        $row = \App\Core\Database::selectOne(
-            'SELECT COUNT(*) AS c
-               FROM organization_users ou
-               JOIN roles r ON r.id = ou.role_id
-              WHERE ou.organization_id = :org
-                AND ou.status = \'active\'
-                AND r.slug    = :slug',
-            ['org' => $organizationId, 'slug' => $roleSlug],
-        );
-        return (int) ($row['c'] ?? 0);
+        return $this->memberships()->countByRoleSlug($organizationId, $roleSlug);
     }
 }

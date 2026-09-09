@@ -75,12 +75,25 @@ final class PatientPortalController extends Controller
         $q = $this->validateQuery($request, [
             'search'    => 'nullable|string|max:120',
             'specialty' => 'nullable|string|max:120',
+            'location'  => 'nullable|string|max:120',
         ]);
 
         $this->ok([
-            'doctors' => PatientPortalService::for($request)
-                ->bookableDoctors($q['search'] ?? null, $q['specialty'] ?? null),
+            'doctors' => PatientPortalService::for($request)->bookableDoctors(
+                $q['search'] ?? null,
+                $q['specialty'] ?? null,
+                $q['location'] ?? null,
+            ),
         ]);
+    }
+
+    /**
+     * The values the doctor filters can offer, so the app never presents a
+     * specialty or location that would come back empty.
+     */
+    public function doctorFilters(Request $request): never
+    {
+        $this->ok(PatientPortalService::for($request)->doctorFilters());
     }
 
     public function doctorSlots(Request $request): never
@@ -188,6 +201,88 @@ final class PatientPortalController extends Controller
         );
 
         $this->ok(['invoice' => $invoice]);
+    }
+
+    /**
+     * A copy of everything, for the person it is about (§16).
+     *
+     * GDPR Art. 15 and 20, and HIPAA §164.524. Reading a record a screen at a
+     * time is not the same right as being able to take it away, so this hands
+     * back the whole thing at once, in a format another system can read.
+     *
+     * Audited like any other access to a chart — more so, since this one is the
+     * whole chart leaving at once.
+     */
+    public function exportMyData(Request $request): never
+    {
+        $me      = PatientPortalService::for($request)->profile();
+        $service = new \App\Services\DataExportService($request->organizationId(), $request->userId());
+        $export  = $service->forPatient((int) $me['id']);
+
+        (new AuditService())->log(
+            $request, 'export', 'patient_data', (int) $me['id'], null,
+            ['requested_by' => 'the patient'], (int) $me['id'],
+        );
+
+        $this->ok($export);
+    }
+
+    /**
+     * Is paying in the app possible at all (§7)?
+     *
+     * The app asks before it draws a Pay button. A clinic with no gateway
+     * configured should not be offering one that can only fail.
+     */
+    public function paymentStatus(Request $request): never
+    {
+        $this->ok(\App\Services\Payments\PaymentGateways::status());
+    }
+
+    /**
+     * Open a payment for one invoice. Takes no amount — see the service.
+     */
+    public function startPayment(Request $request): never
+    {
+        $started = PatientPortalService::for($request)->startPayment($request->intParam('id'));
+
+        (new AuditService())->log(
+            $request, 'create', 'payment_intent', $request->intParam('id'), null,
+            ['gateway' => $started['gateway'], 'reference' => $started['reference']],
+        );
+
+        $this->created($started);
+    }
+
+    /**
+     * Confirm a payment the patient approved at the gateway.
+     *
+     * The reference is the only thing taken from the caller, and on its own it
+     * decides nothing: which invoice it settles and how much comes back from
+     * the gateway, and the service re-checks that the invoice is this
+     * patient's before a row is written.
+     */
+    public function confirmPayment(Request $request): never
+    {
+        $data = $this->validate($request, [
+            // min:1 is doing real work here. `required` only asks that the key
+            // is there — an empty string satisfies it — and an empty reference
+            // would reach the gateway and come back as a 503, which reads as
+            // "the provider is down" rather than "you sent nothing".
+            'reference' => 'required|string|min:1|max:191',
+        ]);
+
+        $result = PatientPortalService::for($request)->confirmPayment((string) $data['reference']);
+
+        (new AuditService())->log(
+            $request, 'create', 'payment', (int) ($result['payment']['id'] ?? 0), null,
+            [
+                'gateway'     => $result['payment']['gateway'] ?? null,
+                'gateway_ref' => $result['payment']['gateway_ref'] ?? null,
+                'amount'      => $result['payment']['amount'] ?? null,
+            ],
+        );
+
+        $this->created($result);
     }
 
     // ---------------- notifications (§20) ----------------

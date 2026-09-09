@@ -5,17 +5,11 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Patient;
 
 final class PatientRepository extends Repository
 {
-    protected string $table = 'patients';
-
-    protected array $fillable = [
-        'user_id', 'mrn', 'first_name', 'last_name', 'date_of_birth', 'gender',
-        'phone', 'email', 'address', 'city', 'blood_group',
-        'emergency_name', 'emergency_phone', 'emergency_relation',
-        'notes', 'status', 'created_by', 'updated_by', 'created_at', 'updated_at',
-    ];
+    protected string $model = Patient::class;
 
     /**
      * Next Medical Record Number for this tenant.
@@ -152,5 +146,63 @@ final class PatientRepository extends Repository
     public function forUser(int $userId): ?array
     {
         return $this->firstWhere(['user_id' => $userId]);
+    }
+    /**
+     * Charts that an unclaimed MRN and date of birth could refer to (§16).
+     *
+     * Deliberately NOT tenant scoped: somebody claiming their chart from the
+     * app has no clinic yet — the chart is what tells us which one. That is
+     * safe only because both halves must match, the chart must not already be
+     * claimed, and the caller refuses anything but exactly one hit. LIMIT 2 is
+     * how it can tell "one" from "more than one" without reading the rest.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function findClaimableByMrnAndDob(string $mrn, string $dob): array
+    {
+        return Database::select(
+            'SELECT id, organization_id, first_name, last_name, phone
+               FROM patients
+              WHERE mrn = :mrn
+                AND date_of_birth = :dob
+                AND user_id IS NULL
+                AND status = :status
+              LIMIT 2',
+            ['mrn' => $mrn, 'dob' => $dob, 'status' => 'active'],
+        );
+    }
+
+    /**
+     * Just enough to reach a patient: their login, email and phone.
+     *
+     * The notifier needs to know whether there is an account to notify and
+     * where to send to. It has no business reading a chart to find out.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function contactFor(int $patientId): ?array
+    {
+        return Database::selectOne(
+            'SELECT p.id, p.user_id, p.email, p.phone
+               FROM patients p
+              WHERE p.organization_id = :org AND p.id = :id',
+            ['org' => $this->scopeBinding(), 'id' => $patientId],
+        );
+    }
+
+    /**
+     * Attach an app login to a chart, but only if nothing is attached yet.
+     *
+     * The `user_id IS NULL` in the WHERE is the whole safety of it: two people
+     * claiming the same chart at once both pass the earlier check, and the one
+     * that gets there second changes no rows. The caller reads the count.
+     */
+    public function linkAccountIfUnclaimed(int $patientId, int $userId): int
+    {
+        return Database::statement(
+            'UPDATE patients SET user_id = :uid, updated_at = :now
+              WHERE id = :id AND user_id IS NULL',
+            ['uid' => $userId, 'now' => now(), 'id' => $patientId],
+        );
     }
 }

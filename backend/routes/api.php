@@ -16,6 +16,7 @@ declare(strict_types=1);
  */
 
 use App\Controllers\AiController;
+use App\Controllers\ApiController;
 use App\Controllers\AppointmentController;
 use App\Controllers\AuditLogController;
 use App\Controllers\AuthController;
@@ -26,6 +27,7 @@ use App\Controllers\EncounterController;
 use App\Controllers\HealthController;
 use App\Controllers\InsuranceController;
 use App\Controllers\MeController;
+use App\Controllers\NotificationController;
 use App\Controllers\OrganizationController;
 use App\Controllers\PatientController;
 use App\Controllers\PatientPortalController;
@@ -39,6 +41,10 @@ use App\Controllers\SubscriptionController;
 $router->group('/api/v1', [], function ($router): void {
 
     // ---------------- Public ----------------
+    // §19: the base route answers with its endpoint groups rather than a 404,
+    // which is a poor reply to the first request anybody makes.
+    $router->get('', [ApiController::class, 'index']);
+
     $router->get('/health', [HealthController::class, 'index']);
 
     // §22 begins with "choose plan", which happens before an account exists —
@@ -50,6 +56,10 @@ $router->group('/api/v1', [], function ($router): void {
     // Auth endpoints are brute-force targets: tighter throttle bucket.
     $router->group('/auth', ['throttle:auth'], function ($router): void {
         $router->post('/register', [AuthController::class, 'register']);
+        // §3: a patient attaching a login to the chart their clinic already
+        // holds. Guessing the medical record number is the attack, so it sits
+        // in this bucket with the other brute-force targets.
+        $router->post('/claim',    [AuthController::class, 'claimChart']);
         $router->post('/login',    [AuthController::class, 'login']);
         $router->post('/refresh',  [AuthController::class, 'refresh']);
 
@@ -76,6 +86,15 @@ $router->group('/api/v1', [], function ($router): void {
 
         $router->get('/me', [MeController::class, 'show']);
         $router->put('/me', [MeController::class, 'update']);
+
+        // §19, §20: the signed-in person's inbox, whoever they are. No tenant
+        // required — an account-level message such as a password reset carries
+        // no organization, and somebody who works at two clinics has one inbox.
+        $router->get('/notifications',    [NotificationController::class, 'index']);
+        $router->post('/notifications/read',      [NotificationController::class, 'markRead']);
+        $router->post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
+        $router->delete('/notifications',         [NotificationController::class, 'dismiss']);
+        $router->delete('/notifications/{id}',    [NotificationController::class, 'dismiss']);
 
         // Clinic onboarding: any authenticated user may create an organization
         // and becomes its owner.
@@ -104,6 +123,14 @@ $router->group('/api/v1', [], function ($router): void {
             $router->put('/members/{userId}/role', [OrganizationController::class, 'changeMemberRole'],
                 ['perm:member.update']);
             $router->put('/members/{userId}/status', [OrganizationController::class, 'changeMemberStatus'],
+                ['perm:member.update']);
+
+            // §20: the employment record behind a membership — employee
+            // number, department, start date. Readable by anyone who can see
+            // the team; writable only by whoever may change a member.
+            $router->get('/members/{userId}/staff', [OrganizationController::class, 'staffProfile'],
+                ['perm:member.view']);
+            $router->put('/members/{userId}/staff', [OrganizationController::class, 'updateStaffProfile'],
                 ['perm:member.update']);
             $router->delete('/members/{userId}', [OrganizationController::class, 'removeMember'],
                 ['perm:member.delete']);
@@ -137,6 +164,10 @@ $router->group('/api/v1', [], function ($router): void {
         // ---- Patients (§3, §5) ----
         $router->get('/patients',      [PatientController::class, 'index'],  ['perm:patient.view']);
         $router->post('/patients',     [PatientController::class, 'store'],  ['perm:patient.create']);
+        // §16: the patient's own copy of everything, produced by staff on
+        // request (GDPR Art. 15, HIPAA §164.524).
+        $router->get('/patients/{id}/export', [PatientController::class, 'exportData'],
+            ['perm:patient.view']);
         $router->get('/patients/{id}', [PatientController::class, 'show'],   ['perm:patient.view']);
         $router->put('/patients/{id}', [PatientController::class, 'update'], ['perm:patient.update']);
         $router->delete('/patients/{id}', [PatientController::class, 'destroy'], ['perm:patient.delete']);
@@ -200,6 +231,9 @@ $router->group('/api/v1', [], function ($router): void {
         // Static /prescriptions/medications before the {id} pattern.
         $router->get('/prescriptions/medications',
             [PrescriptionController::class, 'medications'], ['perm:prescription.view']);
+        // §19: the collection itself, so a prescription can be found and not
+        // only fetched by an id you already had.
+        $router->get('/prescriptions',      [PrescriptionController::class, 'index'], ['perm:prescription.view']);
         $router->post('/prescriptions',     [PrescriptionController::class, 'store'], ['perm:prescription.create']);
         $router->get('/prescriptions/{id}/pdf', [PrescriptionController::class, 'pdf'], ['perm:prescription.view']);
         $router->get('/prescriptions/{id}', [PrescriptionController::class, 'show'],  ['perm:prescription.view']);
@@ -208,6 +242,21 @@ $router->group('/api/v1', [], function ($router): void {
         $router->post('/prescriptions/{id}/cancel', [PrescriptionController::class, 'cancel'], ['perm:prescription.create']);
 
         // ---- Labs & documents (§5, §19) ----
+        //
+        // §19 names this surface /labs, and that is the group below. The flat
+        // /lab-orders paths shipped first and both web apps call them, so they
+        // stay: same controller, same permissions, two spellings. New clients
+        // should use /labs.
+        $router->group('/labs', [], function ($router): void {
+            $router->get('/orders',      [ClinicalController::class, 'labOrders'],    ['perm:lab.view']);
+            $router->get('/orders/{id}', [ClinicalController::class, 'showLabOrder'], ['perm:lab.view']);
+            $router->post('/orders/{id}/results',
+                [ClinicalController::class, 'recordLabResults'], ['perm:lab.result']);
+
+            // Result-first, so "anything abnormal today?" is one request.
+            $router->get('/results', [ClinicalController::class, 'labResults'], ['perm:lab.view']);
+        });
+
         $router->get('/lab-orders', [ClinicalController::class, 'labOrders'], ['perm:lab.view']);
         $router->post('/lab-orders/{id}/results',
             [ClinicalController::class, 'recordLabResults'], ['perm:lab.result']);
@@ -216,6 +265,30 @@ $router->group('/api/v1', [], function ($router): void {
         // ==========================================================
         // PHASE 3 — Billing (§6, §7, §25)
         // ==========================================================
+
+        // §19 names this surface /billing — the catalogue, the invoices and the
+        // reports, gathered under one prefix. As with /labs, the flat paths
+        // below shipped first and the clinic web app calls them, so both work.
+        // /payments stays a sibling rather than moving in here, because §19
+        // lists it separately and taking money is not the same act as billing
+        // for it.
+        $router->group('/billing', [], function ($router): void {
+            $router->get('/services',              [BillingController::class, 'services'],         ['perm:service.view']);
+            $router->post('/services',             [BillingController::class, 'storeService'],     ['perm:service.manage']);
+            $router->put('/services/{id}',         [BillingController::class, 'updateService'],    ['perm:service.manage']);
+            $router->post('/services/{id}/prices', [BillingController::class, 'addServicePrice'],  ['perm:service.manage']);
+
+            $router->get('/invoices',              [BillingController::class, 'invoices'],         ['perm:invoice.view']);
+            $router->post('/invoices',             [BillingController::class, 'storeInvoice'],     ['perm:invoice.create']);
+            $router->get('/invoices/{id}/pdf',     [BillingController::class, 'invoicePdf'],       ['perm:invoice.view']);
+            $router->get('/invoices/{id}',         [BillingController::class, 'showInvoice'],      ['perm:invoice.view']);
+            $router->put('/invoices/{id}',         [BillingController::class, 'updateInvoice'],    ['perm:invoice.update']);
+            $router->post('/invoices/{id}/issue',  [BillingController::class, 'issueInvoice'],     ['perm:invoice.issue']);
+            $router->post('/invoices/{id}/cancel', [BillingController::class, 'cancelInvoice'],    ['perm:invoice.cancel']);
+
+            $router->get('/reports/financial',     [BillingController::class, 'reports'],          ['perm:report.view']);
+            $router->get('/reports/receivables',   [BillingController::class, 'agedReceivables'],  ['perm:report.view']);
+        });
 
         // ---- Service catalogue & pricing (§6, §23) ----
         $router->get('/services',            [BillingController::class, 'services'],         ['perm:service.view']);
@@ -238,6 +311,8 @@ $router->group('/api/v1', [], function ($router): void {
 
         // ---- Payments & refunds (§7) ----
         $router->get('/payments', [BillingController::class, 'payments'], ['perm:payment.view']);
+        // §19: a receipt is a lookup, not a filtered search.
+        $router->get('/payments/{id}', [BillingController::class, 'showPayment'], ['perm:payment.view']);
         $router->post('/invoices/{id}/payments',
             [BillingController::class, 'recordPayment'], ['perm:payment.create']);
 
@@ -271,6 +346,8 @@ $router->group('/api/v1', [], function ($router): void {
         $router->group('/patient', [], function ($router): void {
             $router->get('/dashboard',     [PatientPortalController::class, 'dashboard']);
             $router->get('/profile',       [PatientPortalController::class, 'profile']);
+            // §16: a copy of everything, for the person it is about.
+            $router->get('/export',        [PatientPortalController::class, 'exportMyData']);
             $router->put('/profile',       [PatientPortalController::class, 'updateProfile']);
 
             $router->get('/appointments',  [PatientPortalController::class, 'appointments']);
@@ -279,6 +356,7 @@ $router->group('/api/v1', [], function ($router): void {
             // session, never the request, so this cannot write into somebody
             // else's calendar — which is why it needs no perm: guard.
             $router->get('/doctors',              [PatientPortalController::class, 'doctors']);
+            $router->get('/doctors/filters',      [PatientPortalController::class, 'doctorFilters']);
             $router->get('/doctors/{id}/slots',   [PatientPortalController::class, 'doctorSlots']);
             $router->post('/appointments',        [PatientPortalController::class, 'book']);
             $router->post('/appointments/{id}/reschedule',
@@ -305,6 +383,13 @@ $router->group('/api/v1', [], function ($router): void {
 
             $router->get('/bills',         [PatientPortalController::class, 'bills']);
             $router->get('/invoices/{id}', [PatientPortalController::class, 'invoice']);
+
+            // §7 online payment. No perm: guard, for the same reason booking
+            // has none — the invoice is resolved from the caller's own record,
+            // and the amount is read off it rather than sent by the client.
+            $router->get('/payments/status',    [PatientPortalController::class, 'paymentStatus']);
+            $router->post('/invoices/{id}/pay', [PatientPortalController::class, 'startPayment']);
+            $router->post('/payments/confirm',  [PatientPortalController::class, 'confirmPayment']);
 
             // §20 in-app inbox.
             $router->get('/notifications', [PatientPortalController::class, 'notifications']);
@@ -426,6 +511,12 @@ $router->group('/api/v1', [], function ($router): void {
         $router->get('/countries',      [PlatformController::class, 'countries']);
         $router->post('/countries',     [PlatformController::class, 'storeCountry']);
         $router->put('/countries/{id}', [PlatformController::class, 'updateCountry']);
+
+        // §21 system settings: the deployment's own configuration, including
+        // which payment gateway is in use. Secrets are not here — see
+        // PlatformSettings for why.
+        $router->get('/settings', [PlatformController::class, 'settings']);
+        $router->put('/settings', [PlatformController::class, 'updateSettings']);
     });
 });
 

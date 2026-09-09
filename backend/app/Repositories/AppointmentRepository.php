@@ -5,16 +5,11 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Appointment;
 
 final class AppointmentRepository extends Repository
 {
-    protected string $table = 'appointments';
-
-    protected array $fillable = [
-        'patient_id', 'doctor_id', 'scheduled_at', 'duration_minutes', 'type',
-        'status', 'reason', 'cancelled_reason', 'rescheduled_from', 'booked_by',
-        'created_by', 'updated_by', 'created_at', 'updated_at',
-    ];
+    protected string $model = Appointment::class;
 
     /** Statuses that still occupy the doctor's calendar. */
     private const BLOCKING = ['booked', 'confirmed', 'arrived', 'in_consultation'];

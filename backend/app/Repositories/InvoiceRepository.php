@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Invoice;
 
 /**
  * Invoices and their line items (§6).
@@ -14,15 +15,7 @@ use App\Core\Repository;
  */
 final class InvoiceRepository extends Repository
 {
-    protected string $table = 'invoices';
-
-    protected array $fillable = [
-        'patient_id', 'encounter_id', 'invoice_no', 'status', 'currency_code',
-        'subtotal', 'discount_total', 'tax_total', 'grand_total', 'paid_total',
-        'patient_payable', 'insurance_payable', 'issue_date', 'due_date',
-        'notes', 'pdf_path', 'issued_by', 'cancelled_reason',
-        'created_by', 'updated_by', 'created_at', 'updated_at',
-    ];
+    protected string $model = Invoice::class;
 
     /** balance_due is a generated column — never write to it. */
     protected function filterFillable(array $data): array
@@ -204,6 +197,114 @@ final class InvoiceRepository extends Repository
     public function forEncounter(int $encounterId): ?array
     {
         return $this->firstWhere(['encounter_id' => $encounterId]);
+    }
+
+    /**
+     * Invoices whose due date has passed and which are still owed on.
+     *
+     * Only the columns the overdue run needs, because the caller notifies each
+     * patient and nothing else.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function pastDue(string $today): array
+    {
+        return $this->query(
+            'SELECT id, patient_id, invoice_no, currency_code, grand_total, paid_total
+               FROM invoices
+              WHERE organization_id = :org
+                AND status IN (\'issued\', \'partially_paid\')
+                AND due_date IS NOT NULL
+                AND due_date < :today',
+            ['org' => $this->scopeBinding(), 'today' => $today],
+        );
+    }
+
+    /**
+     * Flag a known set of invoices overdue.
+     *
+     * The ids come from pastDue() rather than from a caller, so the IN list is
+     * built from integers this class produced.
+     *
+     * @param list<int> $ids
+     */
+    public function markOverdue(array $ids): int
+    {
+        if ($ids === []) {
+            return 0;
+        }
+
+        $list = implode(',', array_map('intval', $ids));
+
+        return Database::statement(
+            "UPDATE invoices SET status = 'overdue', updated_at = :now
+              WHERE organization_id = :org AND id IN ($list)",
+            ['now' => now(), 'org' => $this->scopeBinding()],
+        );
+    }
+
+    /** Which market this clinic bills in (§23). */
+    public function countryId(): ?int
+    {
+        $row = Database::selectOne(
+            'SELECT country_id FROM organizations WHERE id = :id',
+            ['id' => $this->scopeBinding()],
+        );
+
+        return $row === null ? null : (int) $row['country_id'];
+    }
+
+    /**
+     * The money line on a doctor's own dashboard (§8).
+     *
+     * `outstanding` is deliberately NOT limited to the day: everything this
+     * doctor's visits have billed and not been paid is what the word means,
+     * and a figure that reset at midnight would be useless.
+     *
+     * The two day bounds are a half-open UTC range for the clinic's local day,
+     * computed by the caller because only it knows the clinic's timezone (§23).
+     *
+     * @return array<string,mixed>
+     */
+    public function doctorDayMoney(int $doctorId, string $fromUtc, string $toUtc): array
+    {
+        return Database::selectOne(
+            'SELECT
+                COALESCE(SUM(CASE WHEN i.created_at >= :from AND i.created_at < :to
+                                  THEN i.grand_total END), 0) AS billed_today,
+                COALESCE(SUM(CASE WHEN i.created_at >= :from2 AND i.created_at < :to2
+                                  THEN i.paid_total END), 0)  AS collected_today,
+                COALESCE(SUM(CASE WHEN i.status NOT IN (\'cancelled\', \'draft\')
+                                  THEN i.balance_due END), 0) AS outstanding
+               FROM invoices i
+               JOIN encounters e ON e.id = i.encounter_id
+              WHERE i.organization_id = :org
+                AND e.doctor_id = :doctor',
+            [
+                'org'    => $this->scopeBinding(),
+                'doctor' => $doctorId,
+                'from'   => $fromUtc, 'to'  => $toUtc,
+                'from2'  => $fromUtc, 'to2' => $toUtc,
+            ],
+        ) ?? [];
+    }
+
+    /**
+     * Read an invoice and hold it for the rest of the caller's transaction.
+     *
+     * Taking a payment is check-then-write: read the balance, decide the
+     * payment fits, insert it. Without the lock two cashiers taking the last
+     * payment at the same moment could both pass the balance check and overpay
+     * the invoice.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function findForUpdate(int $id): ?array
+    {
+        return Database::selectOne(
+            'SELECT * FROM invoices WHERE organization_id = :org AND id = :id FOR UPDATE',
+            ['org' => $this->scopeBinding(), 'id' => $id],
+        );
     }
 
     /**

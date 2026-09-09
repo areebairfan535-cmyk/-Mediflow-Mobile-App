@@ -183,6 +183,15 @@ export const api = {
       body: { status },
     }),
 
+  // §20: the employment record behind a membership — employee number,
+  // department, designation, start date. Separate from the role, which is
+  // access: a promotion changes the role and leaves this alone.
+  saveStaffProfile: (userId, payload) =>
+    request(`/organizations/current/members/${userId}/staff`, {
+      method: 'PUT',
+      body: payload,
+    }),
+
   auditLogs: (params = {}) => {
     const qs = new URLSearchParams(
       Object.entries(params).filter(([, v]) => v !== '' && v != null),
@@ -210,6 +219,13 @@ export const api = {
   platformCountries: () => request('/platform/countries'),
   createCountry: (body) => request('/platform/countries', { method: 'POST', body }),
   updateCountry: (id, body) => request(`/platform/countries/${id}`, { method: 'PUT', body }),
+
+  // ---- platform: the deployment's own settings (§21) ----
+  // The form is built from what this returns, so a new setting on the server
+  // appears on the screen without a change here.
+  platformSettings: () => request('/platform/settings'),
+  savePlatformSettings: (settings) =>
+    request('/platform/settings', { method: 'PUT', body: { settings } }),
 
   // ---- subscription & plans (§22) ----
   plans: () => request('/plans'),

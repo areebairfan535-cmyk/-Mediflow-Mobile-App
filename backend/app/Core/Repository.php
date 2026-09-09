@@ -28,6 +28,23 @@ namespace App\Core;
  */
 abstract class Repository
 {
+    /**
+     * The model describing the record this repository stores (§18).
+     *
+     * Set it and the six properties below are filled from that model, so the
+     * shape of a row is stated once, in the model layer, instead of being
+     * copied into whichever repository happens to query it:
+     *
+     *      protected string $model = \App\Models\Patient::class;
+     *
+     * Left empty, the repository declares its own metadata as before — which
+     * is what the aggregate-only repositories do, since they describe no
+     * single table.
+     *
+     * @var class-string<\App\Models\Model>|''
+     */
+    protected string $model = '';
+
     /** Table name. */
     protected string $table;
 
@@ -48,6 +65,22 @@ abstract class Repository
 
     private ?int $organizationId = null;
     private bool $scopeDisabled  = false;
+
+    public function __construct()
+    {
+        if ($this->model === '') {
+            return;
+        }
+
+        $model = $this->model;
+
+        $this->table        = $model::table();
+        $this->primaryKey   = $model::primaryKey();
+        $this->tenantScoped = $model::tenantScoped();
+        $this->timestamps   = $model::timestamps();
+        $this->fillable     = $model::fillable();
+        $this->hidden       = $model::hidden();
+    }
 
     // ---------------------------------------------------------------
     // Tenant binding

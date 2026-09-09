@@ -12,6 +12,7 @@ import Account from './pages/Account.jsx'
 import Subscription from './pages/Subscription.jsx'
 import Platform from './pages/Platform.jsx'
 import PlatformConfig from './pages/PlatformConfig.jsx'
+import SystemSettings from './pages/SystemSettings.jsx'
 
 /**
  * Nav is driven by the permission list the API returns, not by hard-coded
@@ -27,6 +28,7 @@ const PAGES = [
   { key: 'account', label: 'Account & security', icon: '🔐', section: 'Security' },
   { key: 'platform', label: 'All tenants', icon: '🏥', section: 'Platform', platformOnly: true },
   { key: 'catalogue', label: 'Plans & markets', icon: '🌍', section: 'Platform', platformOnly: true },
+  { key: 'settings', label: 'System settings', icon: '⚙', section: 'Platform', platformOnly: true },
 ]
 
 export default function App() {
@@ -213,6 +215,7 @@ export default function App() {
           {active === 'account' && <Account session={session} onSignedOut={signOut} />}
           {active === 'platform' && <Platform />}
           {active === 'catalogue' && <PlatformConfig />}
+          {active === 'settings' && <SystemSettings />}
           {!active && (
             <p style={{ color: 'var(--muted)' }}>
               Your account has no organization yet. Ask an owner to invite you.

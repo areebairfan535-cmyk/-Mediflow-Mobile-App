@@ -55,6 +55,7 @@ final class DoctorController extends Controller
         $data = $this->validate($request, [
             'user_id'          => 'required|integer',
             'specialty'        => 'required|string|max:120',
+            'location'         => 'nullable|string|max:120',
             'qualification'    => 'nullable|string|max:255',
             'license_no'       => 'nullable|string|max:64',
             'experience_years' => 'nullable|integer|between:0,70',
@@ -95,6 +96,7 @@ final class DoctorController extends Controller
     {
         $data = $this->validate($request, [
             'specialty'        => 'nullable|string|max:120',
+            'location'         => 'nullable|string|max:120',
             'qualification'    => 'nullable|string|max:255',
             'license_no'       => 'nullable|string|max:64',
             'experience_years' => 'nullable|integer|between:0,70',

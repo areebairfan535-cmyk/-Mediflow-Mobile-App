@@ -4,8 +4,9 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Controller;
-use App\Core\Database;
 use App\Core\Request;
+use App\Repositories\CountryRepository;
+use App\Repositories\PlanRepository;
 
 /**
  * The two lists a clinic needs BEFORE it has an account (§22 onboarding).
@@ -17,20 +18,14 @@ use App\Core\Request;
  * Both are public facts a visitor would read on a pricing page. Nothing here
  * is tenant data, nothing is per-user, and only what a chooser needs is
  * returned: no adoption counts, no internal ids beyond the ones the sign-up
- * call sends straight back.
+ * call sends straight back — which is what publicList() means on each
+ * repository, as against the panel's fuller list.
  */
 final class PublicController extends Controller
 {
     public function plans(Request $request): never
     {
-        $plans = Database::select(
-            'SELECT id, slug, name, description, price_monthly, price_yearly, currency_code,
-                    max_doctors, max_staff, max_patients, max_storage_mb,
-                    max_invoices_month, max_appointments_month, max_ai_calls_month, features
-               FROM plans
-              WHERE is_active = 1
-              ORDER BY sort_order, price_monthly',
-        );
+        $plans = (new PlanRepository())->publicList();
 
         foreach ($plans as $i => $plan) {
             $plans[$i]['features'] = is_string($plan['features'] ?? null)
@@ -44,13 +39,6 @@ final class PublicController extends Controller
     /** Markets currently open to new clinics (§23). */
     public function countries(Request $request): never
     {
-        $this->ok([
-            'countries' => Database::select(
-                'SELECT code, name, currency_code, currency_symbol, timezone
-                   FROM countries
-                  WHERE is_active = 1
-                  ORDER BY name',
-            ),
-        ]);
+        $this->ok(['countries' => (new CountryRepository())->publicList()]);
     }
 }

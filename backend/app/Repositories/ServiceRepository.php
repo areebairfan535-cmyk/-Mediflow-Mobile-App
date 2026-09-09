@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Service;
 
 /**
  * Service catalogue and its effective-dated prices (§6, §23).
@@ -16,12 +17,7 @@ use App\Core\Repository;
  */
 final class ServiceRepository extends Repository
 {
-    protected string $table = 'services';
-
-    protected array $fillable = [
-        'code', 'name', 'description', 'department', 'category',
-        'is_taxable', 'is_active', 'created_at', 'updated_at',
-    ];
+    protected string $model = Service::class;
 
     /**
      * Catalogue with each service's currently effective price attached.

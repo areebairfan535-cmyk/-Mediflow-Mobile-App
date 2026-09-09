@@ -5,6 +5,7 @@ namespace App\Repositories;
 
 use App\Core\Database;
 use App\Core\Repository;
+use App\Models\Role;
 
 /**
  * roles + permissions + role_permissions + organization_users reads.
@@ -15,13 +16,7 @@ use App\Core\Repository;
  */
 final class RoleRepository extends Repository
 {
-    protected string $table        = 'roles';
-    protected bool   $tenantScoped = false;
-
-    protected array $fillable = [
-        'organization_id', 'slug', 'name', 'description', 'is_system',
-        'created_at', 'updated_at',
-    ];
+    protected string $model = Role::class;
 
     /** System role template by slug (organization_id IS NULL). */
     public function findSystemRole(string $slug): ?array
@@ -165,13 +160,19 @@ final class RoleRepository extends Repository
     public function members(int $organizationId): array
     {
         return Database::select(
+            // LEFT JOIN on staff: the employment record is optional. A clinic
+            // that keeps no employee numbers still has members.
             'SELECT ou.id, ou.user_id, ou.role_id, ou.status, ou.job_title,
                     ou.joined_at,
                     u.name, u.email, u.phone, u.status AS user_status,
-                    r.slug AS role_slug, r.name AS role_name
+                    r.slug AS role_slug, r.name AS role_name,
+                    s.employee_no, s.department, s.designation, s.hired_at
                FROM organization_users ou
                JOIN users u ON u.id = ou.user_id
                JOIN roles r ON r.id = ou.role_id
+               LEFT JOIN staff s
+                      ON s.organization_id = ou.organization_id
+                     AND s.user_id = ou.user_id
               WHERE ou.organization_id = :org
               ORDER BY r.name, u.name',
             ['org' => $organizationId],

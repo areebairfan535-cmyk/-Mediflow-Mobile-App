@@ -108,7 +108,12 @@ final class StubProvider implements AiProvider
                 continue;
             }
 
+            // The catalogue reaches the prompt as a bulleted list, so the first
+            // field reads "- DENT-RCT" rather than "DENT-RCT". Drop the bullet
+            // here too: a stub whose answers the caller has to clean up is not
+            // standing in for the thing it replaces.
             [$code, $name] = $parts;
+            $code   = ltrim($code, "-*• \t");
             $needle = strtolower($name);
 
             if ($needle === '' || !str_contains($record, $needle)) {

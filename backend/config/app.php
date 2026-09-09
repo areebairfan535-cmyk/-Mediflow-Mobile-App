@@ -50,4 +50,14 @@ return [
     'cors' => [
         'allowed_origins' => explode(',', env('CORS_ORIGINS', '*')),
     ],
+
+    // §7 online payment. Empty is a valid, supported state: the bills screen
+    // shows the balance and says to pay at reception, and nothing else changes.
+    // The keys themselves are read straight from the environment inside the
+    // gateway, not from here — a config array gets dumped in debug output far
+    // too easily for a secret to live in one.
+    'payments' => [
+        'gateway' => strtolower(trim((string) env('PAYMENT_GATEWAY', ''))),
+        'mode'    => strtolower(trim((string) env('PAYMENT_MODE', 'sandbox'))),
+    ],
 ];

@@ -3,15 +3,12 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Core\ConflictException;
 use App\Core\Controller;
-use App\Core\Database;
-use App\Core\NotFoundException;
 use App\Core\Request;
 use App\Repositories\OrganizationRepository;
-use App\Repositories\RoleRepository;
 use App\Repositories\UserRepository;
 use App\Services\AuditService;
+use App\Services\OrganizationService;
 use App\Services\RbacService;
 
 /**
@@ -47,62 +44,8 @@ final class OrganizationController extends Controller
             'plan'         => 'nullable|string|max:40',
         ]);
 
-        $country = Database::selectOne(
-            'SELECT * FROM countries WHERE code = :code AND is_active = 1',
-            ['code' => strtoupper((string) $data['country_code'])],
-        );
-        if ($country === null) {
-            throw new NotFoundException(
-                'Country ' . $data['country_code'] . ' is not configured on this platform'
-            );
-        }
-
-        $organizations = new OrganizationRepository();
-        $slug          = $this->uniqueSlug($organizations, (string) $data['name']);
-        $userId        = (int) $request->userId();
-
-        $organization = Database::transaction(
-            function () use ($organizations, $data, $slug, $country, $userId): array {
-                $org = $organizations->create([
-                    'name'       => trim((string) $data['name']),
-                    'slug'       => $slug,
-                    'country_id' => (int) $country['id'],
-                    'email'      => $data['email']   ?? null,
-                    'phone'      => $data['phone']   ?? null,
-                    'address'    => $data['address'] ?? null,
-                    'city'       => $data['city']    ?? null,
-                    'status'     => 'active',
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $ownerRole = (new RoleRepository())->findSystemRole('org_owner');
-                if ($ownerRole === null) {
-                    throw new \RuntimeException(
-                        'System role org_owner is missing — run database/seed.php'
-                    );
-                }
-
-                (new RbacService())->addMember(
-                    (int) $org['id'],
-                    $userId,
-                    (int) $ownerRole['id'],
-                    'Owner',
-                );
-
-                // §22 onboarding: choose plan → organization created. Inside
-                // the same transaction, so a clinic can never exist without a
-                // subscription — a missing one would otherwise have to be read
-                // as either "free" or "unlimited", and one of those is a leak.
-                \App\Services\SubscriptionService::startFor(
-                    (int) $org['id'],
-                    (string) ($country['currency_code'] ?? 'USD'),
-                    isset($data['plan']) ? (string) $data['plan'] : null,
-                );
-
-                return $org;
-            },
-        );
+        $service      = new OrganizationService(null, $request->userId());
+        $organization = $service->onboard($data, (int) $request->userId());
 
         (new AuditService())->log(
             $request,
@@ -114,7 +57,7 @@ final class OrganizationController extends Controller
         );
 
         $this->created([
-            'organization' => $organizations->settings((int) $organization['id']),
+            'organization' => $service->settings((int) $organization['id']),
             'message'      => 'Organization created. Send X-Organization-Id: '
                               . $organization['id'] . ' to work inside it.',
         ]);
@@ -142,15 +85,15 @@ final class OrganizationController extends Controller
             'invoice_prefix' => 'nullable|string|max:16',
         ]);
 
-        $orgId         = (int) $request->organizationId();
-        $organizations = new OrganizationRepository();
-        $before        = $organizations->find($orgId) ?? [];
+        $orgId   = (int) $request->organizationId();
+        $service = OrganizationService::for($request);
+        $result  = $service->updateSettings($orgId, $data);
 
-        $updated = $organizations->update($orgId, $data);
+        (new AuditService())->logUpdate(
+            $request, 'organization', $orgId, $result['before'], $result['after'],
+        );
 
-        (new AuditService())->logUpdate($request, 'organization', $orgId, $before, $updated);
-
-        $this->ok(['organization' => $organizations->settings($orgId)]);
+        $this->ok(['organization' => $service->settings($orgId)]);
     }
 
     public function members(Request $request): never
@@ -249,6 +192,49 @@ final class OrganizationController extends Controller
         $this->ok(['member' => $membership]);
     }
 
+    /**
+     * One member's employment record (§20).
+     *
+     * Separate from their membership on purpose: that row says what they may
+     * do, this one says who they are to the clinic — employee number,
+     * department, when they started. A promotion changes the first and leaves
+     * the second alone.
+     */
+    public function staffProfile(Request $request): never
+    {
+        $profile = (new RbacService())->staffProfile(
+            (int) $request->organizationId(),
+            $request->intParam('userId'),
+        );
+
+        $this->ok(['staff' => $profile]);
+    }
+
+    public function updateStaffProfile(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'employee_no' => 'nullable|string|max:32',
+            'department'  => 'nullable|string|max:120',
+            'designation' => 'nullable|string|max:120',
+            'hired_at'    => 'nullable|date',
+        ]);
+
+        $userId = $request->intParam('userId');
+        $before = (new RbacService())->staffProfile((int) $request->organizationId(), $userId);
+
+        $profile = (new RbacService())->setStaffProfile(
+            (int) $request->organizationId(),
+            $userId,
+            $data,
+        );
+
+        (new AuditService())->logUpdate(
+            $request, 'staff', $userId, $before ?? [], $profile,
+        );
+
+        $this->ok(['staff' => $profile]);
+    }
+
     public function changeMemberStatus(Request $request): never
     {
         $data = $this->validate($request, [
@@ -301,19 +287,4 @@ final class OrganizationController extends Controller
         $this->ok(['roles' => $roles]);
     }
 
-    private function uniqueSlug(OrganizationRepository $repository, string $name): string
-    {
-        $base = preg_replace('/[^a-z0-9]+/', '-', strtolower($name)) ?? 'clinic';
-        $base = trim($base, '-') ?: 'clinic';
-        $base = substr($base, 0, 100);
-
-        $slug = $base;
-        for ($i = 2; $repository->slugExists($slug); $i++) {
-            $slug = $base . '-' . $i;
-            if ($i > 200) {
-                throw new ConflictException('Could not generate a unique slug for this name');
-            }
-        }
-        return $slug;
-    }
 }

@@ -25,6 +25,36 @@ final class PatientController extends Controller
         $this->ok($result['data'], $result['meta']);
     }
 
+    /**
+     * The clinic producing a patient's record for them (§16).
+     *
+     * The same document the patient can export for themselves, for the far
+     * commoner case: somebody asks at the desk, or in writing, and staff have
+     * to produce it. GDPR Art. 15 and HIPAA §164.524 both put a deadline on
+     * that request; the point of this endpoint is that meeting it does not
+     * involve anyone copying screens by hand.
+     */
+    public function exportData(Request $request): never
+    {
+        $id      = $request->intParam('id');
+        $service = PatientService::for($request);
+        $service->assertMayAccess($request, $id);
+
+        $export = (new \App\Services\DataExportService(
+            $request->organizationId(),
+            $request->userId(),
+        ))->forPatient($id);
+
+        // A whole record leaving at once is exactly the event §16's audit trail
+        // exists to record.
+        (new AuditService())->log(
+            $request, 'export', 'patient_data', $id, null,
+            ['requested_by' => 'clinic staff'], $id,
+        );
+
+        $this->ok($export);
+    }
+
     public function show(Request $request): never
     {
         $id      = $request->intParam('id');

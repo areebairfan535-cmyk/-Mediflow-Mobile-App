@@ -15,12 +15,7 @@ final class HealthController extends Controller
 {
     public function index(Request $request): never
     {
-        $databaseOk = true;
-        try {
-            Database::selectOne('SELECT 1 AS ok');
-        } catch (\Throwable) {
-            $databaseOk = false;
-        }
+        $databaseOk = Database::ping();
 
         $this->ok([
             'status'   => $databaseOk ? 'ok' : 'degraded',
