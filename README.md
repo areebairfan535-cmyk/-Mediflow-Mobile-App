@@ -30,8 +30,8 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**614/614 end-to-end assertions pass** (78 foundation + 69 clinical +
-106 billing + 95 patient + 82 insurance + 59 AI + 61 subscription +
+**619/619 end-to-end assertions pass** (78 foundation + 69 clinical +
+111 billing + 95 patient + 82 insurance + 59 AI + 61 subscription +
 64 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
@@ -112,7 +112,7 @@ C:/xampp/php/php.exe -S 127.0.0.1:8000 -t public
 # 5. Verify
 bash database/smoke-test.sh              # 78 assertions
 bash database/smoke-test-clinical.sh     # 69 assertions
-bash database/smoke-test-billing.sh      # 106 assertions
+bash database/smoke-test-billing.sh      # 111 assertions
 bash database/smoke-test-patient.sh      # 95 assertions
 bash database/smoke-test-insurance.sh    # 82 assertions
 bash database/smoke-test-ai.sh           # 59 assertions
@@ -770,6 +770,15 @@ is not a correction.
 Payments follow the same discipline. `invoices.paid_total` is a cached SUM of
 the payment ledger, **rebuilt** after every write rather than incremented, so
 the header can never drift from the rows beneath it.
+
+And the suite checks that across every invoice in the database, not only the
+ones it just wrote. A test that reads back its own rows cannot see a rounding
+slip or a double subtraction accumulating in rows nobody looks at again — five
+sentences about money have to stay true of all of them: paid_total matches the
+ledger beneath it, nothing has been paid a negative amount, nothing has taken
+more than it charged, every payment belongs to an invoice, and no payment has
+been refunded past its own amount. Re-introducing the full-refund bug fails
+two of them on its own.
 
 ### A draft is not revenue, on any tile that claims to be money
 

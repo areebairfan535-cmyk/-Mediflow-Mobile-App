@@ -593,6 +593,49 @@ esac
 
 # ---------------------------------------------------------------
 echo
+echo "[11] The ledger adds up — across every invoice, not just these (sec 6)"
+
+# Everything above proves a path. This proves the result of every path ever
+# taken against this database, which is a different question: a rounding
+# slip or a double subtraction does not fail a test that only reads back the
+# rows it just wrote, it accumulates quietly in rows nobody looks at again.
+#
+# Each of these is a sentence about money that has to stay true. They are
+# counted, not listed, because the answer is meant to be zero.
+ledger() {
+  N=$("$MYSQL" -u root "$DB" -N -e "$2" 2>/dev/null | tr -d '\r')
+  [ "${N:-x}" = "0" ] && pass "$1" || fail "$1 — $N row(s)"
+}
+
+# paid_total is a cached SUM, rebuilt after every write. If it can drift from
+# the ledger beneath it, every balance and every outstanding figure is wrong.
+ledger "paid_total matches the payment ledger everywhere" \
+  "SELECT COUNT(*) FROM invoices i
+    WHERE i.paid_total <> (
+      COALESCE((SELECT SUM(p.amount) FROM payments p
+                 WHERE p.invoice_id = i.id AND p.status IN ('succeeded','refunded')), 0)
+    - COALESCE((SELECT SUM(r.amount) FROM refunds r
+                 WHERE r.invoice_id = i.id AND r.status = 'completed'), 0))"
+
+# A negative paid_total is what the full-refund double subtraction produced,
+# and balance_due is generated from it — so it showed the patient owing twice.
+ledger "no invoice has been paid a negative amount" \
+  "SELECT COUNT(*) FROM invoices WHERE paid_total < 0"
+
+ledger "no invoice has taken more than it charged" \
+  "SELECT COUNT(*) FROM invoices WHERE paid_total > grand_total AND status <> 'refunded'"
+
+ledger "every payment belongs to an invoice" \
+  "SELECT COUNT(*) FROM payments p LEFT JOIN invoices i ON i.id = p.invoice_id
+    WHERE i.id IS NULL"
+
+ledger "no payment has been refunded past its own amount" \
+  "SELECT COUNT(*) FROM payments p
+    WHERE (SELECT COALESCE(SUM(r.amount), 0) FROM refunds r
+            WHERE r.payment_id = p.id AND r.status = 'completed') > p.amount"
+
+# ---------------------------------------------------------------
+echo
 echo "====================================="
 printf 'passed: %d   failed: %d\n\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
