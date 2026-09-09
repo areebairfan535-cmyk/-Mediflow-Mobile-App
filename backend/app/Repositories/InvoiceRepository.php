@@ -328,10 +328,24 @@ final class InvoiceRepository extends Repository
                 throw new \App\Core\NotFoundException('Invoice not found');
             }
 
+            // `refunded` belongs in this sum, and leaving it out was a bug.
+            //
+            // A refund is subtracted once, below, from the refunds table. A
+            // payment is also stamped `refunded` — but only when the whole of
+            // it has been given back (PaymentRepository::markRefunded). So a
+            // full refund used to be taken off twice: once by the payment
+            // dropping out of this sum, once by the subtraction below. A
+            // partial refund, which leaves the payment `succeeded`, came out
+            // right. That is why this only ever went wrong on full refunds.
+            //
+            // `refunded` here means "this money arrived, and later went back",
+            // which is a payment that happened. `pending` and `failed` are
+            // money that never arrived, and stay out.
             $paid = (string) (Database::selectOne(
                 'SELECT COALESCE(SUM(amount), 0) AS paid
                    FROM payments
-                  WHERE organization_id = :org AND invoice_id = :iid AND status = \'succeeded\'',
+                  WHERE organization_id = :org AND invoice_id = :iid
+                    AND status IN (\'succeeded\', \'refunded\')',
                 ['org' => $org, 'iid' => $invoiceId],
             )['paid'] ?? '0');
 

@@ -56,10 +56,13 @@ final class ReportRepository extends Repository
      */
     public function receivedBetween(string $from, string $to): array
     {
+        // A fully refunded payment is stamped `refunded`, and it still belongs
+        // in what came in — ReportService subtracts refunds separately, so
+        // excluding it here took the same money off the net figure twice.
         return $this->query(
             'SELECT COUNT(*) AS payment_count, COALESCE(SUM(amount), 0) AS received
                FROM payments
-              WHERE organization_id = :org AND status = \'succeeded\'
+              WHERE organization_id = :org AND status IN (\'succeeded\', \'refunded\')
                 AND created_at BETWEEN :from AND :to',
             $this->range($from, $to),
         )[0] ?? [];
@@ -81,9 +84,13 @@ final class ReportRepository extends Repository
     public function paymentMethodMix(string $from, string $to): array
     {
         return $this->query(
+            // Same set as receivedBetween, so the mix adds up to it. A card
+            // payment that was later refunded in full still went through the
+            // card machine, and a till reconciliation that hid it would not
+            // match the day's slips.
             'SELECT method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
                FROM payments
-              WHERE organization_id = :org AND status = \'succeeded\'
+              WHERE organization_id = :org AND status IN (\'succeeded\', \'refunded\')
                 AND created_at BETWEEN :from AND :to
               GROUP BY method
               ORDER BY total DESC',

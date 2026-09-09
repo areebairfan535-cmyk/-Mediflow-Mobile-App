@@ -384,6 +384,44 @@ eq "status reopened"                  "$(jval "$B" status)"       "partially_pai
 R=$(api POST "/refunds/$REFUND/approve" '' "${OAUTH[@]}")
 expect "cannot approve twice" "$(status_of "$R")" "409"
 
+# A refund for the whole of a payment, which is a different path from the
+# partial one above: approving it also stamps the payment `refunded`, and the
+# recalculation used to then take the money off twice — once for the payment
+# leaving the `succeeded` sum, once for the refund itself. On its own invoice,
+# so the arithmetic is checkable rather than tangled with the partial above.
+FULLINV=$(jnum "$(body_of "$(api POST /invoices \
+  "{\"patient_id\":$PATIENT,\"items\":[{\"service_id\":$NEWSVC,\"quantity\":1}]}" "${OAUTH[@]}")")" id)
+api POST "/invoices/$FULLINV/issue" '' "${OAUTH[@]}" > /dev/null
+
+R=$(api GET "/invoices/$FULLINV" '' "${OAUTH[@]}")
+FULLTOTAL=$(jmoney "$(body_of "$R")" grand_total)
+
+R=$(api POST "/invoices/$FULLINV/payments" "{\"amount\":$FULLTOTAL,\"method\":\"cash\"}" "${OAUTH[@]}")
+expect "pay the new invoice in full" "$(status_of "$R")" "201"
+FULLPAY=$(jnum "$(body_of "$R")" id)
+
+R=$(api GET "/invoices/$FULLINV" '' "${OAUTH[@]}")
+eq "invoice reads paid" "$(jval "$(body_of "$R")" status)" "paid"
+
+R=$(api POST "/payments/$FULLPAY/refunds" \
+  "{\"amount\":$FULLTOTAL,\"reason\":\"Treatment not carried out\"}" "${BAUTH[@]}")
+expect "request a refund of the whole payment" "$(status_of "$R")" "201"
+FULLREFUND=$(jnum "$(body_of "$R")" id)
+
+R=$(api POST "/refunds/$FULLREFUND/approve" '' "${OAUTH[@]}")
+expect "owner approves the full refund" "$(status_of "$R")" "200"
+
+R=$(api GET "/invoices/$FULLINV" '' "${OAUTH[@]}")
+B=$(body_of "$R")
+# The money came in and went back out. Nothing is held, and nothing is owed
+# twice over: paid_total is zero, not minus the invoice.
+eq "a full refund leaves paid_total at zero" "$(jmoney "$B" paid_total)"  "0.00"
+eq "and the balance back at the total"       "$(jmoney "$B" balance_due)" "$FULLTOTAL"
+eq "and the invoice reads refunded"          "$(jval "$B" status)"        "refunded"
+
+PAYSTATUS=$("$MYSQL" -u root "$DB" -N -e "SELECT status FROM payments WHERE id=$FULLPAY")
+eq "the payment itself is stamped refunded" "$PAYSTATUS" "refunded"
+
 # ---------------------------------------------------------------
 echo
 echo "[6] Consultation -> invoice (sec 27)"
