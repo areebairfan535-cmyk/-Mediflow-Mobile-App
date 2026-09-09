@@ -52,8 +52,13 @@ export class ApiError extends Error {
 let refreshing = null
 
 async function rawRequest(path, { method = 'GET', body, auth = true, org = true } = {}) {
+  // A file upload goes as multipart. Content-Type is left unset on purpose —
+  // the browser has to add it itself so it can append the boundary, and a
+  // hand-written header would leave the server unable to split the parts.
+  const isUpload = typeof FormData !== 'undefined' && body instanceof FormData
+
   const headers = { Accept: 'application/json' }
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  if (body !== undefined && !isUpload) headers['Content-Type'] = 'application/json'
   if (auth && tokens.access) headers.Authorization = `Bearer ${tokens.access}`
   if (org && tokens.org) headers['X-Organization-Id'] = String(tokens.org)
   headers['X-Device-Name'] = 'MediFlow Clinic'
@@ -61,7 +66,7 @@ async function rawRequest(path, { method = 'GET', body, auth = true, org = true 
   const response = await fetch(`/api/v1${path}`, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : isUpload ? body : JSON.stringify(body),
   })
 
   const text = await response.text()
@@ -116,7 +121,8 @@ const qs = (params = {}) => {
 }
 
 /**
- * Open a generated PDF in a new tab.
+ * Open a generated PDF — or a stored document, which may equally be a scan or
+ * a photo — in a new tab.
  *
  * A plain <a href> cannot be used: the document needs the Bearer token and the
  * tenant header, so the bytes are fetched, turned into a blob and handed to the
@@ -233,6 +239,13 @@ export const api = {
   requestRefund: (paymentId, body) =>
     request(`/payments/${paymentId}/refunds`, { method: 'POST', body }),
   financialReport: (params) => request(`/reports/financial${qs(params)}`),
+
+  // ---- documents (§5, §19) ----
+  // The bytes go up as multipart; `form` carries the file alongside its title,
+  // category and visibility, so one request stores the file and its meaning.
+  documents: (patientId) => request(`/patients/${patientId}/documents`),
+  uploadDocument: (patientId, form) =>
+    request(`/patients/${patientId}/documents`, { method: 'POST', body: form }),
 
   // ---- insurance & claims (Phase 5) ----
   insurers: () => request('/insurance/providers'),
