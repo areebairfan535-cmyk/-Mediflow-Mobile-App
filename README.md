@@ -30,8 +30,8 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**562/562 end-to-end assertions pass** (78 foundation + 55 clinical +
-94 billing + 90 patient + 82 insurance + 58 AI + 52 subscription +
+**588/588 end-to-end assertions pass** (78 foundation + 67 clinical +
+102 billing + 95 patient + 82 insurance + 59 AI + 52 subscription +
 53 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
@@ -111,11 +111,11 @@ C:/xampp/php/php.exe -S 127.0.0.1:8000 -t public
 
 # 5. Verify
 bash database/smoke-test.sh              # 78 assertions
-bash database/smoke-test-clinical.sh     # 55 assertions
-bash database/smoke-test-billing.sh      # 94 assertions
-bash database/smoke-test-patient.sh      # 90 assertions
+bash database/smoke-test-clinical.sh     # 67 assertions
+bash database/smoke-test-billing.sh      # 102 assertions
+bash database/smoke-test-patient.sh      # 95 assertions
 bash database/smoke-test-insurance.sh    # 82 assertions
-bash database/smoke-test-ai.sh           # 58 assertions
+bash database/smoke-test-ai.sh           # 59 assertions
 bash database/smoke-test-subscription.sh # 52 assertions
 bash database/smoke-test-platform.sh     # 53 assertions
 ```
@@ -385,6 +385,7 @@ GET    /encounters/{id}                       the whole visit in one payload
 PUT    /encounters/{id}                       symptoms, examination, vitals
 POST   /encounters/{id}/complete
 POST   /encounters/{id}/cancel
+GET    /diagnoses/common?search=          what this clinic diagnoses, commonest first
 POST   /encounters/{id}/diagnoses
 POST   /encounters/{id}/procedures
 POST   /encounters/{id}/notes
@@ -429,7 +430,9 @@ POST   /patient/appointments                   book
 POST   /patient/appointments/{id}/reschedule   move
 POST   /patient/appointments/{id}/cancel
 
-GET    /patient/records | /prescriptions | /lab-results | /documents
+GET    /patient/records                        visits + diagnoses, procedures
+                                              and approved notes
+GET    /patient/prescriptions | /lab-results | /documents
 GET    /patient/documents/{id}/download        released reports only
 GET    /patient/prescriptions/{id}/pdf
 GET    /patient/bills | /invoices/{id}
@@ -635,7 +638,7 @@ nobody runs on a timer is not a backup policy.
 
 ---
 
-## Three more decisions from Phase 2
+## Four more decisions from Phase 2
 
 ### Times are the clinic's, not the viewer's
 
@@ -666,12 +669,35 @@ procedure, a prescription, or recorded symptoms/examination. Completing is the
 point at which a visit becomes a billable, permanent record — an empty one is
 almost always a mis-click, and Phase 3 will invoice from exactly this event.
 
+### The pick list for diagnoses is the clinic's own history
+
+§4 asks for common clinical and billing actions to be selectable rather than
+typed. Medicines had a catalogue, procedures had one (the billing catalogue,
+which nothing clinical was offering), and diagnoses had nothing at all — every
+one was typed out, code and wording, every time.
+
+Shipping a diagnosis catalogue is the obvious answer and the wrong one. "The
+things a dental clinic diagnoses" is not a list anyone can write in advance,
+and one bought in would be wrong for every practice in a different way, so it
+would rot until people typed around it.
+
+What a clinic *has* diagnosed is a better list than any of them. It needs no
+maintaining, it is right from the second visit onwards, and it gets more right
+the more the clinic is used. `GET /diagnoses/common` groups the diagnoses
+table on (description, ICD-10) and orders by how often each pair has been
+written. The demo data makes the case on its own: *Irreversible pulpitis*
+appears three times over — 72, 59 and 16 uses — under three spellings, because
+until now there was nothing to click.
+
+Free text stays underneath both pickers. The thing nobody has seen before is
+exactly the thing a fixed catalogue would have blocked.
+
 ---
 
 
 ---
 
-## Three more decisions from Phase 3
+## Five more decisions from Phase 3
 
 ### Money is never a float, and never comes from the client
 
@@ -708,6 +734,44 @@ is not a correction.
 Payments follow the same discipline. `invoices.paid_total` is a cached SUM of
 the payment ledger, **rebuilt** after every write rather than incremented, so
 the header can never drift from the rows beneath it.
+
+### A draft is not revenue, on any tile that claims to be money
+
+The doctor's dashboard shows billed today, collected today, and outstanding.
+All three now skip drafts and cancellations, and the point is that they skip
+the *same* ones.
+
+`billed_today` used to sum every invoice raised that day whatever its status,
+while `outstanding` excluded drafts. A morning with six drafts open therefore
+read: billed 33,510, collected 21,000, outstanding 0.00 — twelve and a half
+thousand billed, not collected, and not owed by anybody. Three tiles on one
+screen, disagreeing.
+
+A draft has no invoice number, the patient has never seen it, and it may never
+be issued at all — the same reason the number is allocated at issue rather
+than at creation. It is not billed, so it is not on the revenue tile either.
+
+### A refunded payment is still a payment
+
+Money that arrived and later went back is two events, not one that never
+happened. So a refund is subtracted in exactly one place — the refunds table —
+and `payments` with status `refunded` stay inside every "what came in" sum:
+`recalculatePayments`, the financial report's `received`, and the by-method
+till reconciliation.
+
+This one was learned the hard way. Approving a refund also stamps the payment
+`refunded`, but only when the whole of it has gone back
+(`PaymentRepository::markRefunded`). Summing only `succeeded` payments and then
+subtracting completed refunds therefore took a full refund off twice: once for
+the payment leaving the sum, once for the refund itself. `paid_total` went
+**negative**, and `balance_due` — a generated column, `grand_total -
+paid_total` — showed the patient owing double an invoice they had already paid
+and been refunded for.
+
+A partial refund leaves the payment `succeeded` and came out right, which is
+why it survived: the suite refunded 500 of a 4,000 payment and checked the
+arithmetic, and that path was never wrong. The test now does both, and asserts
+the full-refund case lands on zero rather than on minus the invoice.
 
 
 ---
@@ -786,7 +850,7 @@ including when a step fails.
 
 ---
 
-## Four decisions from the patient-facing work
+## Six decisions from the patient-facing work
 
 ### The patient books through the clinic's own timetable
 
@@ -800,6 +864,28 @@ booking exactly as they do to a receptionist's.
 suite asserts that: posting somebody else's id books for yourself, not for
 them.
 
+### Online consultation is a seam, not a stub
+
+§3 asks for *future* online consultation support, and the difference between
+that and a half-built video call is worth being explicit about.
+
+`teleconsult` is a real value of `appointments.type` and of `encounters.type`,
+not a placeholder. The clinic can book one today and it flows through the
+booking, reschedule, cancel and consultation paths unchanged, because nothing
+in those paths branches on the type. The patient app reads the field: an
+online visit carries an **online** badge and is not given a room number, so
+nobody travels to a building for a video call.
+
+What is deliberately absent is the call itself — there is no `meeting_url`, no
+provider, no join button. Adding one is a column, a place to show it, and
+whatever the clinic's video provider needs; none of it disturbs what is here.
+
+Which is why `POST /patient/appointments` does not accept `type` while the
+clinic's `POST /appointments` does. A patient who could tick "online" would be
+promised a link that does not exist yet. The front desk booking a teleconsult
+already knows how the call will happen; the app does not, so it does not offer
+the choice. That line moves when the join link lands, not before.
+
 ### A report you can see listed but cannot open is not a record you have
 
 The download route already refused anything not marked `patient_visible`, and
@@ -808,6 +894,29 @@ was a way in: the clinic route is gated on `document.view`, which the patient
 role deliberately does not hold. So the patient portal exposes the same
 handler under its own identity-scoped path. Opening a report is audited like
 every other read of a medical record (§16).
+
+### The doctor's note is the patient's too, once it is approved
+
+§3 lists doctor notes and discharge summaries among the records a patient
+holds. `/patient/records` used to withhold every clinical note, on the reading
+that a note is the clinician's working record and the clinic releases what it
+chooses through `medical_documents`.
+
+That reading did not survive contact with §16. `GET /patient/export` has always
+returned the same approved notes, so the rule in practice was not "the patient
+may not read these" — it was "the patient may read these, in a JSON file, if
+they think to ask for one". Two answers to the same question.
+
+So the notes come back with the visit, under the filter the export already
+used: `approved_at IS NOT NULL`. That half is not a policy about patients, it
+is §9's gate. Nothing the documentation assistant writes is a record until a
+clinician takes responsibility for it, and a draft the doctor has not read is
+not something to put in front of the person it is about. The approver's name
+travels with the note, because an unattributed note is not one anybody can ask
+a question about.
+
+A discharge summary is a note of type `discharge`, so this is also the answer
+to where a patient reads theirs.
 
 ### The PDF writer is 250 lines, not a library
 
@@ -851,6 +960,18 @@ depended on the worker at all.
 
 Channels are the Strategy pattern §13 asks for: `SmtpChannel`, `SmsChannel`,
 `PushChannel`, each its own class. Adding WhatsApp is one more file.
+
+There is a fourth outcome the table above cannot show, because it leaves no
+row: a channel with nowhere to send. An email or SMS is only queued once there
+is an address to put on it, which is right — but the address used to be read
+from the chart alone, and a patient who signed up in the app without the front
+desk typing their email in had none. Every `invoice.issued` email was dropped
+before it was ever a row, so `--status` could not report it either: nothing
+was skipped, nothing failed, nothing existed.
+
+`PatientRepository::contactFor` now falls back to the linked account, chart
+first. The clinic correcting a bounced address still wins over a stale signup;
+a patient who only ever gave their address to the app still gets the email.
 
 ```bash
 php database/notify.php            # send what is due — put this on cron
