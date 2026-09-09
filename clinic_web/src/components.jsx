@@ -14,13 +14,29 @@ export function Card({ title, action, children, bodyless }) {
   )
 }
 
-export function Stat({ label, value, hint, money }) {
-  return (
-    <div className="stat">
+/**
+ * A number with a label. Give it `onClick` and it becomes the control for
+ * whatever it counts — a tile that says "3 completed" is the obvious place to
+ * press to see which three, and a count nobody can open is a dead end.
+ */
+export function Stat({ label, value, hint, money, onClick, active }) {
+  const body = (
+    <>
       <div className="label">{label}</div>
       <div className={money ? 'value money' : 'value'}>{value}</div>
       {hint && <div className="hint">{hint}</div>}
-    </div>
+    </>
+  )
+
+  if (!onClick) return <div className="stat">{body}</div>
+
+  return (
+    <button type="button"
+            className={`stat stat-btn${active ? ' active' : ''}`}
+            aria-pressed={active}
+            onClick={onClick}>
+      {body}
+    </button>
   )
 }
 
@@ -175,6 +191,39 @@ function toDate(value) {
   const iso = s.includes('T') ? s : s.replace(' ', 'T')
   const d = new Date(iso.endsWith('Z') ? iso : `${iso}Z`)
   return Number.isNaN(d.getTime()) ? null : d
+}
+
+/**
+ * Whole minutes from a stored time until now, negative before it.
+ *
+ * No timezone anywhere: both sides are instants, and the difference between
+ * two instants is the same number wherever it is read.
+ */
+export function minutesSince(value) {
+  const d = toDate(value)
+  return d === null ? null : Math.round((Date.now() - d.getTime()) / 60000)
+}
+
+/**
+ * A gap in minutes, said the way a person would.
+ *
+ * Past an hour and a half, minutes stop being readable — "681 min" makes the
+ * reader do the division. Hours and minutes from there.
+ */
+function gap(minutes) {
+  if (minutes < 90) return `${minutes} min`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
+
+/** "12 min past their slot" / "slot in 8 min" / "due now". */
+export function lateness(scheduledAt) {
+  const m = minutesSince(scheduledAt)
+  if (m === null) return ''
+  if (m >= 1) return `${gap(m)} past their slot`
+  if (m <= -1) return `slot in ${gap(Math.abs(m))}`
+  return 'due now'
 }
 
 /** Simple modal shell. */

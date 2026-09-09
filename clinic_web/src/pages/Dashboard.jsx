@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api.js'
-import { Card, Stat, Badge, Loading, Empty, ErrorBox, timeOf, todayISO } from '../components.jsx'
+import {
+  AppointmentType, Card, Stat, Badge, Loading, Empty, ErrorBox,
+  timeOf, todayISO, minutesSince, lateness,
+} from '../components.jsx'
 import { AiStatusLine } from '../ai.jsx'
 import { money } from './Billing.jsx'
 
@@ -16,6 +19,8 @@ export default function Dashboard({ session, go }) {
   const [state, setState] = useState({ loading: true })
   const [busy, setBusy] = useState(null)
   const [notice, setNotice] = useState(null)
+  // Which slice of today the list below is showing: all, completed, cancelled.
+  const [filter, setFilter] = useState('all')
 
   async function load() {
     setState({ loading: true })
@@ -74,6 +79,29 @@ export default function Dashboard({ session, go }) {
   const isDoctor = state.mode === 'doctor'
   const list = state.today || []
 
+  // Arrived and not yet called through. `in_consultation` is deliberately out:
+  // that patient is being seen, not waiting.
+  const waiting = list
+    .filter((a) => a.status === 'arrived')
+    .sort((a, b) => String(a.scheduled_at).localeCompare(String(b.scheduled_at)))
+
+  // §4 asks for completed visits and cancellations as their own things, and a
+  // tile counting them is not one. Rather than three near-identical cards, the
+  // day list narrows — and the tile that shows the count is what narrows it,
+  // because that is where the reader already is when they want the detail.
+  const FILTERS = {
+    all: () => true,
+    completed: (a) => a.status === 'completed',
+    cancelled: (a) => a.status === 'cancelled' || a.status === 'no_show',
+  }
+  const shown = list.filter(FILTERS[filter] ?? FILTERS.all)
+
+  const listTitle = filter === 'completed'
+    ? `${shown.length} completed visit${shown.length === 1 ? '' : 's'}`
+    : filter === 'cancelled'
+      ? `${shown.length} cancelled or missed`
+      : `${shown.length} appointment${shown.length === 1 ? '' : 's'}`
+
   return (
     <>
       <div className="page-head">
@@ -101,15 +129,28 @@ export default function Dashboard({ session, go }) {
 
       {isDoctor && state.counts && (
         <div className="stat-grid">
-          <Stat label="Today" value={state.counts.today_total} hint="appointments" />
+          {/* Pressing a tile a second time clears the filter, so the way back
+              to the whole day is the way you got out of it. */}
+          <Stat label="Today" value={state.counts.today_total} hint="appointments"
+                active={filter === 'all'} onClick={() => setFilter('all')} />
           <Stat label="Waiting" value={state.counts.waiting}
                 hint={state.counts.waiting > 0 ? 'patients arrived' : 'nobody waiting'} />
-          <Stat label="Completed" value={state.counts.completed} hint="visits done" />
+          {/* Only while somebody is actually in the room. A permanent "0 in
+              progress" tile is a fact nobody needs, and it crowds out the
+              counts that change through the morning. */}
+          {state.counts.in_progress > 0 && (
+            <Stat label="In progress" value={state.counts.in_progress} hint="in the room" />
+          )}
+          <Stat label="Completed" value={state.counts.completed} hint="visits done"
+                active={filter === 'completed'}
+                onClick={() => setFilter(filter === 'completed' ? 'all' : 'completed')} />
           {/* §4 asks for cancellations too. Counted together with no-shows,
               because an hour nobody turned up for cost the doctor the same as
               one that was cancelled — the hint says which is which. */}
           <Stat label="Cancelled" value={state.counts.cancelled}
-                hint={state.counts.cancelled > 0 ? 'incl. no-shows' : 'none today'} />
+                hint={state.counts.cancelled > 0 ? 'incl. no-shows' : 'none today'}
+                active={filter === 'cancelled'}
+                onClick={() => setFilter(filter === 'cancelled' ? 'all' : 'cancelled')} />
           <Stat label="This week" value={state.counts.week_total} hint="appointments" />
         </div>
       )}
@@ -128,12 +169,76 @@ export default function Dashboard({ session, go }) {
         </div>
       )}
 
-      <Card title={`${list.length} appointment${list.length === 1 ? "" : "s"}`} bodyless>
-        {list.length === 0 ? (
-          <Empty icon="📅" title="Nothing booked for today"
-                 hint="Use the Appointments tab to book one." />
+      {/* §4 asks for the waiting patients as a list, and a count is not one.
+          "Who is waiting, and how long have they been?" is the question a
+          doctor asks between visits; answering it by scanning a full day for
+          `arrived` badges is the thing this card exists to stop.
+
+          Ordered by their slot, not by arrival: the person the clinic is
+          latest for should be seen first, and an early arrival has not
+          overtaken anybody. */}
+      {waiting.length > 0 && (
+        <Card title={`Waiting now (${waiting.length})`} bodyless>
+          {waiting.map((a) => (
+            <div className="slot-row" key={`w-${a.id}`}>
+              <div className="slot-time">{timeOf(a.scheduled_at)}</div>
+              <div className="slot-main">
+                <div className="who">
+                  {a.patient_name} <span className="hint mono">{a.mrn}</span>
+                </div>
+                <div className="why">
+                  {a.reason || 'No reason given'}
+                  {!isDoctor && a.doctor_name ? ` · ${a.doctor_name}` : ''}
+                </div>
+              </div>
+
+              {/* Late enough to matter gets said in red; the rest is a hint. */}
+              <span className={minutesSince(a.scheduled_at) >= 15 ? 'strong' : 'hint'}
+                    style={minutesSince(a.scheduled_at) >= 15
+                      ? { color: 'var(--danger, #b3261e)' } : undefined}>
+                {lateness(a.scheduled_at)}
+              </span>
+
+              <AppointmentType type={a.type} />
+
+              <div className="slot-actions">
+                {session.can('encounter.create') && (
+                  <button className="btn btn-sm" disabled={busy === a.id}
+                          onClick={() => startConsultation(a)}>
+                    Start consultation
+                  </button>
+                )}
+                <button className="btn btn-sm btn-secondary"
+                        onClick={() => go('chart', { patientId: a.patient_id })}>
+                  Chart
+                </button>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      <Card
+        title={listTitle}
+        bodyless
+        action={filter !== 'all' && (
+          <button className="btn btn-sm btn-secondary" onClick={() => setFilter('all')}>
+            Show the whole day
+          </button>
+        )}
+      >
+        {shown.length === 0 ? (
+          <Empty
+            icon="📅"
+            title={
+              filter === 'completed' ? 'No visits finished yet'
+                : filter === 'cancelled' ? 'Nothing cancelled today'
+                  : 'Nothing booked for today'
+            }
+            hint={filter === 'all' ? 'Use the Appointments tab to book one.' : undefined}
+          />
         ) : (
-          list.map((a) => (
+          shown.map((a) => (
             <div className="slot-row" key={a.id}>
               <div className="slot-time">{timeOf(a.scheduled_at)}</div>
 
@@ -158,6 +263,7 @@ export default function Dashboard({ session, go }) {
                 )}
               </div>
 
+              <AppointmentType type={a.type} />
               <Badge>{a.status.replace(/_/g, ' ')}</Badge>
 
               <div className="slot-actions">
