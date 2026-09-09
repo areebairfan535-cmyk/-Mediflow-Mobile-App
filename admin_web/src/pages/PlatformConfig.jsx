@@ -84,8 +84,13 @@ export default function PlatformConfig() {
             <table>
               <thead>
                 <tr>
+                  {/* Every limit the plan carries, in the order §22 sets
+                      them. Storage and appointments were editable in the form
+                      and missing from this table, so comparing two plans meant
+                      opening both. */}
                   <th>Plan</th><th>Price / month</th><th>Doctors</th><th>Staff</th>
-                  <th>Patients</th><th>Invoices / mo</th><th>AI / mo</th>
+                  <th>Patients</th><th>Storage</th><th>Invoices / mo</th>
+                  <th>Appts / mo</th><th>AI / mo</th>
                   <th>Clinics</th><th /><th />
                 </tr>
               </thead>
@@ -103,7 +108,9 @@ export default function PlatformConfig() {
                     <td className="mono"><Cap value={p.max_doctors} /></td>
                     <td className="mono"><Cap value={p.max_staff} /></td>
                     <td className="mono"><Cap value={p.max_patients} /></td>
+                    <td className="mono"><Storage mb={p.max_storage_mb} /></td>
                     <td className="mono"><Cap value={p.max_invoices_month} /></td>
+                    <td className="mono"><Cap value={p.max_appointments_month} /></td>
                     <td className="mono"><Cap value={p.max_ai_calls_month} /></td>
                     <td className="mono">{p.organizations}</td>
                     <td><Badge tone={p.is_active ? 'ok' : 'neutral'}>
@@ -199,6 +206,19 @@ export default function PlatformConfig() {
 /** A ceiling, or the fact that there isn't one. */
 function Cap({ value }) {
   return value == null ? <span style={{ color: 'var(--muted)' }}>∞</span> : Number(value).toLocaleString()
+}
+
+/**
+ * Storage, in the unit a person compares plans in.
+ *
+ * It is stored in megabytes because that is what the usage counter adds up,
+ * but "25,000" beside "500" is arithmetic the reader should not have to do.
+ */
+function Storage({ mb }) {
+  if (mb == null) return <span style={{ color: 'var(--muted)' }}>∞</span>
+  return Number(mb) >= 1024
+    ? `${(Number(mb) / 1024).toFixed(Number(mb) % 1024 === 0 ? 0 : 1)} GB`
+    : `${Number(mb).toLocaleString()} MB`
 }
 
 /* ------------------------------------------------------------------ */
