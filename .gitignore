@@ -57,3 +57,6 @@ backend/storage/backups/
 
 # Test runner output
 backend/database/last-run.log
+
+# Stub push service the test suite spins up
+backend/database/.pushmock/

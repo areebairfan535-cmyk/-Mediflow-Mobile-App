@@ -90,6 +90,12 @@ $router->group('/api/v1', [], function ($router): void {
         // §19, §20: the signed-in person's inbox, whoever they are. No tenant
         // required — an account-level message such as a password reset carries
         // no organization, and somebody who works at two clinics has one inbox.
+        // §20: where notifications reach this person outside the app. The app
+        // re-registers on every launch, because the OS reissues push tokens.
+        $router->post('/me/devices',      [NotificationController::class, 'registerDevice']);
+        $router->get('/me/devices',       [NotificationController::class, 'devices']);
+        $router->delete('/me/devices/{id}', [NotificationController::class, 'forgetDevice']);
+
         $router->get('/notifications',    [NotificationController::class, 'index']);
         $router->post('/notifications/read',      [NotificationController::class, 'markRead']);
         $router->post('/notifications/{id}/read', [NotificationController::class, 'markRead']);

@@ -5,6 +5,8 @@ namespace App\Controllers;
 
 use App\Core\Controller;
 use App\Core\Request;
+use App\Repositories\DeviceTokenRepository;
+use App\Services\AuditService;
 use App\Services\NotificationService;
 
 /**
@@ -24,6 +26,67 @@ final class NotificationController extends Controller
     private function service(Request $request): NotificationService
     {
         return new NotificationService($request->organizationId(), $request->userId());
+    }
+
+    /**
+     * Register this device so notifications reach it outside the app (§20).
+     *
+     * Called on every launch, not only the first: push tokens are reissued by
+     * the OS from time to time, and an app that registered once would quietly
+     * stop being reachable. The write upserts on the token, so calling it
+     * daily costs one row, not thirty.
+     */
+    public function registerDevice(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'token'       => 'required|string|min:8|max:255',
+            'platform'    => 'nullable|in:ios,android,web',
+            'device_name' => 'nullable|string|max:120',
+        ]);
+
+        $device = (new DeviceTokenRepository())->register(
+            (int) $request->userId(),
+            trim((string) $data['token']),
+            (string) ($data['platform'] ?? 'android'),
+            $data['device_name'] ?? null,
+        );
+
+        // Worth a trail entry: a device being added is a new place this
+        // person's health notifications will appear.
+        (new AuditService())->log(
+            $request, 'create', 'device_token', (int) ($device['id'] ?? 0), null,
+            ['platform' => $device['platform'] ?? null, 'device' => $device['device_name'] ?? null],
+        );
+
+        $this->created(['device' => $device]);
+    }
+
+    /** The devices this person has registered, and which have gone quiet. */
+    public function devices(Request $request): never
+    {
+        $this->ok([
+            'devices' => (new DeviceTokenRepository())->listFor((int) $request->userId()),
+        ]);
+    }
+
+    /**
+     * Stop pushing to one device — "sign this phone out of notifications".
+     */
+    public function forgetDevice(Request $request): never
+    {
+        $revoked = (new DeviceTokenRepository())->revokeOwned(
+            $request->intParam('id'),
+            (int) $request->userId(),
+            'Signed out from this device',
+        );
+
+        if (!$revoked) {
+            // Either it is not theirs or it was already silenced. Same answer
+            // for both — a stranger must not learn that an id exists.
+            throw new \App\Core\NotFoundException('No such device on this account');
+        }
+
+        $this->ok(['message' => 'This device will stop receiving notifications.']);
     }
 
     public function index(Request $request): never

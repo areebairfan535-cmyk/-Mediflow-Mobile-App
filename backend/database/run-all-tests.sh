@@ -56,6 +56,7 @@ else
         test-files.sh
         test-onboarding.sh
         test-presence.sh
+        test-push.sh
     )
 fi
 

@@ -311,6 +311,14 @@ final class AuthService
             return 0;
         }
         $count = $this->tokens->revokeAll($userId);
+
+        // Signing out everywhere has to include the phones. Leaving a device
+        // registered would keep pushing a patient's appointment reminders to
+        // a handset they just signed out of — which is the exact thing
+        // somebody signing out of everywhere is trying to stop.
+        (new \App\Repositories\DeviceTokenRepository())
+            ->revokeAllFor($userId, 'Signed out of all devices');
+
         $this->audit->logAuth($request, 'logout_all', $userId, "revoked $count tokens");
         return $count;
     }

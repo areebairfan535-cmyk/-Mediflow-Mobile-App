@@ -6,6 +6,7 @@ import {
 import { useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { api, auth } from '../src/api'
+import { registerForPush } from '../src/push'
 import { c } from '../src/ui'
 import { a, AuthError, Field, PillButton, Reveal, useKeyboardInset } from '../src/authui'
 
@@ -54,6 +55,12 @@ export default function Login() {
       }
 
       await auth.saveOrg(res.data.active_org_id ?? orgs[0].organization_id)
+
+      // §20: ask to notify, and tell the server where to reach this phone.
+      // Not awaited — the permission dialog must not stand between the
+      // patient and their dashboard, and a phone that declines still has
+      // the inbox inside the app.
+      registerForPush()
 
       router.replace('/(tabs)')
     } catch (err) {

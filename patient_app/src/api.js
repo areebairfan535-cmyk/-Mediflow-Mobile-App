@@ -333,6 +333,14 @@ export const api = {
   bills: () => request('/patient/bills'),
   invoice: (id) => request(`/patient/invoices/${id}`),
 
+  // §20: where to reach this phone when the app is closed. Sent after every
+  // sign-in, because the OS reissues push tokens from time to time; the
+  // server upserts on the token, so repeating it does not pile up devices.
+  registerDevice: (payload) =>
+    request('/me/devices', { method: 'POST', body: payload }),
+  devices: () => request('/me/devices'),
+  forgetDevice: (id) => request(`/me/devices/${id}`, { method: 'DELETE' }),
+
   notifications: (unread) =>
     request(`/patient/notifications${unread ? '?unread=1' : ''}`),
   markRead: (id) =>
