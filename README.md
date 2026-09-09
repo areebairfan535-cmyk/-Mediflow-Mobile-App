@@ -123,6 +123,11 @@ bash database/smoke-test-platform.sh     # 64 assertions
 # phone. Not counted above — it re-walks ground the suites already cover, to
 # prove the chain between them holds.
 bash database/test-mvp.sh                # 27 assertions
+
+# The shape of the tables rather than the behaviour on top of them: every
+# table §20 names, tenant scoping, and §5's rule that a medical record carries
+# the clinic, the patient, an author and timestamps.
+bash database/test-schema.sh             # 81 assertions
 ```
 
 Each suite resets the state it depends on at startup — stale open
@@ -280,6 +285,18 @@ agree with what PHP writes.
 
 Created in full during Phase 1 so later phases add behaviour, not destructive
 migrations.
+
+§5 asks that every medical record carry the clinic, the patient, an author and
+timestamps. `test-schema.sh` checks all twelve of the entities it names, and
+the rule carries its own exemption rather than a list: a table with a
+`patient_id` is a patient record and must name an author; a table without one
+is a catalogue, and a catalogue has nobody to name. `medications` is the only
+one of the twelve on the second side of that line, which is correct — it is a
+price-list of drugs.
+
+The author column is named for what it means rather than uniformly. A lab
+result is `reported_by`, a document is `uploaded_by`. Both are the author, and
+the check accepts any of the three spellings.
 
 | Migration | Tables |
 |---|---|

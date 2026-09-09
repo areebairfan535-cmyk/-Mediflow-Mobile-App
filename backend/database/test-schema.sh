@@ -129,6 +129,57 @@ want "and it needs a token" "$C" "401"
 # Tidy up so re-runs start clean.
 sql "DELETE FROM staff WHERE organization_id=1 AND employee_no='EMP-T001'" >/dev/null
 
+step "5. Every medical record says whose it is and who wrote it"
+# §5 names twelve entities and says each sensitive record carries the clinic,
+# the patient, an author, and timestamps. Tenant scoping is checked above;
+# this is the rest of that sentence, and nothing was checking it.
+#
+# There is deliberately no exemption list. The rule carries its own:
+#
+#   a table with a patient_id IS a patient record, so it must name an author
+#   a table without one is a catalogue, and a catalogue has no author to name
+#
+# `medications` is the only one of the twelve without a patient, and it is a
+# price-list of drugs. So the list cannot be padded to hide a mistake: drop
+# patient_id from a real record and it stops being asked for an author, but
+# the patient check fails first and says so.
+has_col() { sql "SELECT COUNT(*) FROM information_schema.columns
+                  WHERE table_schema='$DB' AND table_name='$1' AND column_name='$2'"; }
+
+for t in patients encounters diagnoses medications prescriptions lab_orders \
+         lab_results procedures clinical_notes medical_documents allergies \
+         medical_conditions; do
+
+  [ "$(has_col "$t" organization_id)" = "1" ] \
+    && ok "$t is a clinic's" || bad "$t has no organization_id"
+
+  CA=$(has_col "$t" created_at); UA=$(has_col "$t" updated_at)
+  [ "$CA" = "1" ] && [ "$UA" = "1" ] \
+    && ok "$t is timestamped" || bad "$t is missing created_at or updated_at"
+
+  # The patient itself is the one row that cannot point at a patient.
+  if [ "$t" = "patients" ]; then
+    PATIENT=1
+  else
+    PATIENT=$(has_col "$t" patient_id)
+  fi
+
+  if [ "$PATIENT" = "1" ]; then
+    # Named for what it means rather than uniformly: a lab result is REPORTED
+    # by somebody, a document is UPLOADED. Both are the author.
+    AUTHOR=0
+    for c in created_by uploaded_by reported_by; do
+      [ "$(has_col "$t" "$c")" = "1" ] && AUTHOR=1
+    done
+    [ "$AUTHOR" = "1" ] && ok "$t names an author" \
+                        || bad "$t is a patient record with no author"
+  else
+    [ "$(has_col "$t" created_by)" = "0" ] \
+      && ok "$t is a catalogue, and carries no patient" \
+      || bad "$t has an author but no patient — is it a record or a catalogue?"
+  fi
+done
+
 echo
 echo "========================================="
 echo "passed: $PASS   failed: $FAIL"
