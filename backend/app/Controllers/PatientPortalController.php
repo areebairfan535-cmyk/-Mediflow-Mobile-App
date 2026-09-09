@@ -76,32 +76,49 @@ final class PatientPortalController extends Controller
             'search'    => 'nullable|string|max:120',
             'specialty' => 'nullable|string|max:120',
             'location'  => 'nullable|string|max:120',
-            // ?online=1 keeps only the doctors who are at their desk now.
+            // Defaults to true: the app shows who can see the patient now.
+            // ?online=0 asks for everyone, which is what a "book for later"
+            // screen wants.
             'online'    => 'nullable|boolean',
         ]);
 
-        $onlineOnly = filter_var($q['online'] ?? false, FILTER_VALIDATE_BOOL);
+        $service    = PatientPortalService::for($request);
+        $onlineOnly = !isset($q['online']) || filter_var($q['online'], FILTER_VALIDATE_BOOL);
 
-        $doctors = PatientPortalService::for($request)->bookableDoctors(
+        $doctors = $service->bookableDoctors(
             $q['search'] ?? null,
             $q['specialty'] ?? null,
             $q['location'] ?? null,
             $onlineOnly,
         );
 
-        // Every doctor carries is_online whether or not the list was filtered,
-        // so the app can show a presence dot without asking twice.
+        // How many the clinic has at all, under the same search filters.
         //
-        // The filter is deliberately NOT the default. Booking is mostly for
-        // later in the week, and a patient opening the app at ten at night
-        // would otherwise find an empty list and no way to book Tuesday.
+        // Without this the app cannot tell "this clinic has no dentists" from
+        // "the dentists are all at lunch", and would show the same empty
+        // screen for both. With it, an empty online list can say: nobody is
+        // online now, four doctors take bookings for later.
+        $bookable = $onlineOnly
+            ? count($service->bookableDoctors(
+                $q['search'] ?? null,
+                $q['specialty'] ?? null,
+                $q['location'] ?? null,
+                false,
+            ))
+            : count($doctors);
+
         $this->ok([
-            'doctors'      => $doctors,
-            'online_only'  => $onlineOnly,
+            'doctors'     => $doctors,
+            'online_only' => $onlineOnly,
+            // Counted from the rows, not assumed from the filter, so it means
+            // the same thing either way the list was asked for.
             'online_count' => count(array_filter(
                 $doctors,
                 static fn (array $d): bool => (int) ($d['is_online'] ?? 0) === 1,
             )),
+            // Everyone accepting patients, online or not — what is left to
+            // offer when the list above is empty.
+            'bookable_total' => $bookable,
         ]);
     }
 
