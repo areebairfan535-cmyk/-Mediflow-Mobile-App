@@ -95,6 +95,38 @@ $deadServices = Database::select(
     ['stamp' => '[0-9]{9,}'],
 );
 
+/**
+ * Test plans, and only ones nobody is on.
+ *
+ * smoke-test-platform creates a plan named trial<timestamp>, retires it, and
+ * leaves it behind; they accumulate. A plan with a live subscription stays
+ * whatever its name looks like — a clinic pointing at a deleted plan has no
+ * limits at all, which is the worst way this could fail.
+ */
+$deadPlans = Database::select(
+    'SELECT p.id, p.slug
+       FROM plans p
+      WHERE p.slug REGEXP :stamp
+        AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.plan_id = p.id)
+      ORDER BY p.id',
+    ['stamp' => '[0-9]{9,}'],
+);
+
+/**
+ * Markets the tests opened and then closed, with no clinic in them.
+ *
+ * The platform suite opens a market to prove a clinic can be created in one,
+ * then closes it again. An empty closed market is debris; a closed market
+ * with a clinic in it is that clinic's country and must stay.
+ */
+$deadCountries = Database::select(
+    'SELECT c.id, c.code, c.name
+       FROM countries c
+      WHERE c.is_active = 0
+        AND NOT EXISTS (SELECT 1 FROM organizations o WHERE o.country_id = c.id)
+      ORDER BY c.id',
+);
+
 $show = static function (string $what, array $rows, string $field): void {
     echo count($rows) . " $what:\n";
     foreach (array_slice($rows, 0, 8) as $row) {
@@ -114,7 +146,9 @@ echo "\n";
 $show('clinic(s) kept', $liveOrgs, 'name');
 
 echo "\n";
-if ($doomed === [] && $deadOrgs === [] && $deadServices === []) {
+if ($doomed === [] && $deadOrgs === [] && $deadServices === []
+    && $deadPlans === [] && $deadCountries === []
+) {
     echo "No test leftovers found. Nothing to do.\n\n";
     exit(0);
 }
@@ -127,6 +161,10 @@ echo "\n";
 $show('test clinic(s)', $deadOrgs, 'name');
 echo "\n";
 $show('test service(s), none of them billed', $deadServices, 'code');
+echo "\n";
+$show('test plan(s), nobody subscribed', $deadPlans, 'slug');
+echo "\n";
+$show('closed market(s) with no clinic in them', $deadCountries, 'code');
 
 if (!$apply) {
     echo "\nNothing was changed.\n\n";
@@ -134,6 +172,7 @@ if (!$apply) {
 }
 
 $unlinked = $members = $deleted = $orgsGone = $servicesGone = 0;
+$plansGone = $countriesGone = 0;
 
 if ($doomed !== []) {
     $in = implode(',', array_map(static fn (array $u): int => (int) $u['id'], $doomed));
@@ -161,10 +200,32 @@ if ($deadServices !== []) {
     $servicesGone = Database::statement("DELETE FROM services WHERE id IN ($in)");
 }
 
+if ($deadPlans !== []) {
+    $in = implode(',', array_map(static fn (array $p): int => (int) $p['id'], $deadPlans));
+    $plansGone = Database::statement("DELETE FROM plans WHERE id IN ($in)");
+}
+
+// Recounted, not reused. The list above was built before the test clinics
+// were deleted, and deleting them is exactly what empties the market they
+// were in — so a market that became empty a moment ago would otherwise
+// survive until the next run.
+$deadCountries = Database::select(
+    'SELECT c.id, c.code FROM countries c
+      WHERE c.is_active = 0
+        AND NOT EXISTS (SELECT 1 FROM organizations o WHERE o.country_id = c.id)',
+);
+
+if ($deadCountries !== []) {
+    $in = implode(',', array_map(static fn (array $c): int => (int) $c['id'], $deadCountries));
+    $countriesGone = Database::statement("DELETE FROM countries WHERE id IN ($in)");
+}
+
 echo "\n";
 echo "  unlinked  $unlinked patient chart(s)\n";
 echo "  removed   $members membership(s)\n";
 echo "  removed   $deleted account(s)\n";
 echo "  removed   $orgsGone test clinic(s)\n";
 echo "  removed   $servicesGone test service(s)\n";
+echo "  removed   $plansGone test plan(s)\n";
+echo "  removed   $countriesGone empty closed market(s)\n";
 echo "\nRun database/seed.php next to put the demo clinic back on its plan.\n\n";
