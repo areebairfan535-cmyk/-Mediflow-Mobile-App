@@ -97,14 +97,36 @@ final class PatientPortalRepository extends Repository
     }
 
     /**
+     * The only tables countFor() will count.
+     *
+     * Both of its arguments are interpolated into SQL rather than bound —
+     * a table name cannot be a placeholder. Every caller today passes a
+     * literal, but this is a public method on a repository and the next caller
+     * is somebody who has not read this file. The whitelist is what makes that
+     * safe rather than merely true so far.
+     */
+    private const COUNTABLE = [
+        'encounters'    => true,
+        'prescriptions' => true,
+        'lab_orders'    => true,
+        'appointments'  => true,
+        'invoices'      => true,
+    ];
+
+    /**
      * How many rows of one kind this patient has.
      *
-     * The table name is never user input — every caller passes a literal — and
-     * the predicate is a constant in the calling service, so there is nothing
-     * here for a request to reach.
+     * @throws \InvalidArgumentException if the table is not on the whitelist
      */
     public function countFor(int $patientId, string $table, string $predicate): int
     {
+        if (!isset(self::COUNTABLE[$table])) {
+            throw new \InvalidArgumentException("countFor() will not count `$table`");
+        }
+        // The predicate is a constant written in the calling service, never
+        // anything a request supplies, so it does not need the same guard —
+        // but it must not start carrying one, which is why this says so.
+
         $row = $this->query(
             "SELECT COUNT(*) AS c FROM $table
               WHERE organization_id = :org AND patient_id = :pid AND $predicate",

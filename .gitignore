@@ -51,3 +51,6 @@ Thumbs.db
 
 # Test artefacts written by the smoke suites, which run from backend/database
 backend/database/*.pdf
+
+# Backups hold a full database dump — patient data. Never in version control.
+backend/storage/backups/

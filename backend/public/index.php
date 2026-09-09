@@ -27,13 +27,34 @@ $config = require dirname(__DIR__) . '/bootstrap/app.php';
 
 $request = Request::capture();
 
-// Security headers (§17). HSTS is only meaningful over HTTPS, so it is left
-// to the web server / reverse proxy that terminates TLS.
+// Security headers (§17).
 if (!headers_sent()) {
     header('X-Frame-Options: DENY');
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: no-referrer');
     header('X-Request-Id: ' . $request->requestId);
+
+    // The PHP version is nobody's business: it tells an attacker which
+    // published vulnerabilities to try first.
+    header_remove('X-Powered-By');
+
+    // A JSON API loads nothing and frames nothing, so the strictest policy is
+    // also the correct one. It costs nothing here and shuts the door on any
+    // future response that accidentally returns HTML.
+    header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+
+    // HSTS, but only over TLS. A browser ignores this header on a plain HTTP
+    // response, and sending it anyway would assert something the deployment
+    // has not earned — local development runs on http://127.0.0.1.
+    //
+    // Behind a reverse proxy the hop to PHP is plain HTTP, so X-Forwarded-Proto
+    // is what says whether the *client* used TLS.
+    $tlsDirect    = ($_SERVER['HTTPS'] ?? '') !== '' && ($_SERVER['HTTPS'] ?? '') !== 'off';
+    $tlsForwarded = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+
+    if ($tlsDirect || $tlsForwarded) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
 }
 
 Response::cors($request, $config['cors']['allowed_origins']);
