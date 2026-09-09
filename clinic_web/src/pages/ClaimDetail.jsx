@@ -234,6 +234,38 @@ export default function ClaimDetail({ claimId, session, go }) {
         </Card>
       </div>
 
+      {/* The chain read backwards. Opening a replacement used to show no sign
+          that it was one: `resubmission_of` came back as a bare id and nothing
+          rendered it, so the claim this one answers could only be found by
+          returning to the list and guessing. The insurer's reason for
+          refusing the first is the reason this one exists. */}
+      {cl.replaces && (
+        <div style={{ marginTop: 16 }}>
+          <Card title="Raised to replace">
+            <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+              <span className="mono strong">{cl.replaces.claim_no}</span>
+              <Badge tone={CLAIM_TONE[cl.replaces.status]}>
+                {cl.replaces.status.replace(/_/g, ' ')}
+              </Badge>
+              <span className="hint">{dateOf(cl.replaces.created_at)}</span>
+              {/* .spacer is scoped to .patient-header, so push it here. */}
+              <button className="btn btn-sm btn-secondary" style={{ marginLeft: 'auto' }}
+                      onClick={() => go('claim', { claimId: cl.replaces.id })}>
+                Open
+              </button>
+            </div>
+            {cl.replaces.rejection_reason && (
+              <p style={{ marginTop: 10, marginBottom: 0 }}>
+                {cl.replaces.rejection_code && (
+                  <span className="mono hint">{cl.replaces.rejection_code} · </span>
+                )}
+                {cl.replaces.rejection_reason}
+              </p>
+            )}
+          </Card>
+        </div>
+      )}
+
       {cl.resubmissions?.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <Card title="Resubmissions" bodyless>

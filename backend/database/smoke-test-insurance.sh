@@ -365,6 +365,21 @@ case "$(body_of "$R")" in
   *)                   fail "resubmission chain missing" ;;
 esac
 
+# And the chain read backwards. `resubmission_of` came back as a bare id that
+# no screen could render, so opening the replacement showed no sign it was
+# one — and the claim it answers could only be found by going back to the
+# list. The reason the insurer refused the first is the reason this one exists.
+R=$(api GET "/claims/$CLAIM3" '' "${BAUTH[@]}")
+B=$(body_of "$R")
+case "$B" in
+  *'"replaces"'*) pass "the replacement links back to what it replaces" ;;
+  *)              fail "the resubmission chain only reads forwards" ;;
+esac
+case "$B" in
+  *"Discharge summary not attached"*) pass "and carries why the first was refused" ;;
+  *)                                   fail "the original's rejection reason is not on the replacement" ;;
+esac
+
 R=$(api POST "/claims/$CLAIM/resubmit" '' "${BAUTH[@]}")
 expect "cannot resubmit a paid claim" "$(status_of "$R")" "409"
 

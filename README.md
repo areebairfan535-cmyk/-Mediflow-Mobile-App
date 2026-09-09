@@ -30,8 +30,8 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**622/622 end-to-end assertions pass** (78 foundation + 69 clinical +
-111 billing + 95 patient + 85 insurance + 59 AI + 61 subscription +
+**624/624 end-to-end assertions pass** (78 foundation + 69 clinical +
+111 billing + 95 patient + 87 insurance + 59 AI + 61 subscription +
 64 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
@@ -114,7 +114,7 @@ bash database/smoke-test.sh              # 78 assertions
 bash database/smoke-test-clinical.sh     # 69 assertions
 bash database/smoke-test-billing.sh      # 111 assertions
 bash database/smoke-test-patient.sh      # 95 assertions
-bash database/smoke-test-insurance.sh    # 85 assertions
+bash database/smoke-test-insurance.sh    # 87 assertions
 bash database/smoke-test-ai.sh           # 59 assertions
 bash database/smoke-test-subscription.sh # 61 assertions
 bash database/smoke-test-platform.sh     # 64 assertions

@@ -118,6 +118,19 @@ final class ClaimRepository extends Repository
             ['org' => $org, 'id' => $id],
         );
 
+        // And the other direction. `resubmission_of` is an id, which tells a
+        // reader nothing: opening the replacement showed no sign that it was
+        // one, and the claim it answers could only be found by going back to
+        // the list and guessing. Same columns as above, so the screen can
+        // render either end of the chain the same way.
+        $claim['replaces'] = $claim['resubmission_of'] === null ? null : Database::selectOne(
+            'SELECT id, claim_no, status, claimed_amount, approved_amount,
+                    rejection_code, rejection_reason, created_at
+               FROM claims
+              WHERE organization_id = :org AND id = :id',
+            ['org' => $org, 'id' => (int) $claim['resubmission_of']],
+        );
+
         return $claim;
     }
 
