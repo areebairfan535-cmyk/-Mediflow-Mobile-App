@@ -168,6 +168,65 @@ DEMO=$(sql "SELECT p.slug FROM subscriptions s JOIN plans p ON p.id=s.plan_id WH
 
 # ---------------------------------------------------------------
 echo
+echo "[3a] The dashboard counts the live ones (sec 21)"
+
+# §21 asks for organization STATUS and for ACTIVE doctors and patients. On
+# seeded data nothing is ever suspended or disabled, so active and total are
+# always equal and a filter could be missing entirely without anyone noticing.
+# So make one of each inactive and watch the numbers move.
+dash_num() { printf '%s' "$1" | grep -o "\"$2\":[0-9]\+" | head -1 | sed "s/.*://"; }
+
+R=$(api GET /platform/dashboard '' "${AAUTH[@]}")
+B=$(body_of "$R")
+ORGS0=$(dash_num "$B" active_organizations)
+TOTAL0=$(dash_num "$B" total_organizations)
+DOCS0=$(dash_num "$B" doctors)
+DOCTOTAL0=$(dash_num "$B" doctors_total)
+PATS0=$(dash_num "$B" patients)
+
+# The suite's own clinic, and the newest doctor and patient — never the demo
+# ones, and every change is put back below.
+DOCUSER=$(sql "SELECT u.id FROM doctors d JOIN users u ON u.id = d.user_id
+               WHERE u.status = 'active' ORDER BY d.id DESC LIMIT 1" | tr -d '\r')
+PAT=$(sql "SELECT id FROM patients WHERE status = 'active' ORDER BY id DESC LIMIT 1" | tr -d '\r')
+
+api PUT "/platform/organizations/$NEW_ORG/status" '{"status":"suspended"}' "${AAUTH[@]}" > /dev/null
+sql "UPDATE users SET status='disabled' WHERE id=$DOCUSER" > /dev/null
+sql "UPDATE patients SET status='inactive' WHERE id=$PAT"  > /dev/null
+
+R=$(api GET /platform/dashboard '' "${AAUTH[@]}")
+B=$(body_of "$R")
+
+expect "a suspended clinic leaves the active count" "$(dash_num "$B" active_organizations)" "$((ORGS0 - 1))"
+expect "but stays in the total"                     "$(dash_num "$B" total_organizations)"  "$TOTAL0"
+expect "a disabled account leaves active doctors"   "$(dash_num "$B" doctors)"              "$((DOCS0 - 1))"
+# The doctors row outlives the person leaving — that is why both are reported.
+expect "while the doctors on record stand"          "$(dash_num "$B" doctors_total)"        "$DOCTOTAL0"
+expect "an inactive patient leaves the count"       "$(dash_num "$B" patients)"             "$((PATS0 - 1))"
+
+# Put the clinic back exactly as it was found.
+api PUT "/platform/organizations/$NEW_ORG/status" '{"status":"active"}' "${AAUTH[@]}" > /dev/null
+sql "UPDATE users SET status='active' WHERE id=$DOCUSER" > /dev/null
+sql "UPDATE patients SET status='active' WHERE id=$PAT"  > /dev/null
+
+R=$(api GET /platform/dashboard '' "${AAUTH[@]}")
+B=$(body_of "$R")
+[ "$(dash_num "$B" active_organizations)" = "$ORGS0" ] \
+  && [ "$(dash_num "$B" doctors)" = "$DOCS0" ] \
+  && [ "$(dash_num "$B" patients)" = "$PATS0" ] \
+  && pass "and everything is put back" \
+  || fail "the suite left something suspended or disabled"
+
+# The three money figures are one subtraction apart, which is the first thing
+# anybody does with them. They were once taken over three different sets.
+MB=$(printf '%s' "$B" | grep -o '"billed_total":"[0-9.]*"'      | sed 's/.*:"//; s/"//')
+MC=$(printf '%s' "$B" | grep -o '"collected_total":"[0-9.]*"'   | sed 's/.*:"//; s/"//')
+MO=$(printf '%s' "$B" | grep -o '"outstanding_total":"[0-9.]*"' | sed 's/.*:"//; s/"//')
+DIFF=$(awk -v a="$MB" -v b="$MC" 'BEGIN { printf "%.2f", a - b }')
+expect "billed minus collected is outstanding" "$DIFF" "$MO"
+
+# ---------------------------------------------------------------
+echo
 echo "[3b] One clinic's doctors and patients (sec 21)"
 
 # sec 21 asks a platform admin to look after doctor and patient accounts, and
