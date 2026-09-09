@@ -51,6 +51,26 @@ export function AiMark({ children = 'AI draft' }) {
 /* 1. Documentation assistant (§9) + the notes section it lives in.    */
 
 /**
+ * §5's five kinds of clinical note.
+ *
+ * The API has always accepted all five. The screen used to send `soap`
+ * whatever was written, which left the other four — a discharge summary among
+ * them — with nowhere to be written down.
+ */
+const NOTE_TYPES = [
+  { value: 'soap', label: 'SOAP note',
+    placeholder: 'Subjective / objective / assessment / plan' },
+  { value: 'progress', label: 'Progress note',
+    placeholder: 'How the patient has moved since the last entry' },
+  { value: 'discharge', label: 'Discharge summary',
+    placeholder: 'Why they came, what was done, and what they go home with' },
+  { value: 'referral', label: 'Referral letter',
+    placeholder: 'Who you are referring to, and what you are asking of them' },
+  { value: 'general', label: 'General note',
+    placeholder: 'Anything that belongs on this visit' },
+]
+
+/**
  * Clinical notes for a visit, with the AI documentation assistant attached.
  *
  * The section works with no AI at all — type a note, save it, done. When a
@@ -65,7 +85,10 @@ export function ClinicalNotes({ encounter, open, session, onChanged, onError }) 
 
   const [shorthand, setShorthand] = useState('')
   const [manual, setManual] = useState('')
+  const [noteType, setNoteType] = useState('soap')
   const [busy, setBusy] = useState(null)
+
+  const kind = NOTE_TYPES.find((t) => t.value === noteType) ?? NOTE_TYPES[0]
 
   async function run(key, fn, done) {
     setBusy(key)
@@ -127,20 +150,35 @@ export function ClinicalNotes({ encounter, open, session, onChanged, onError }) 
 
           <div className="field" style={{ marginTop: 16 }}>
             <label>{canDraft ? 'Or write it yourself' : 'Write a note'}</label>
+
+            {/* The kind of note is the doctor's choice, not the screen's. A
+                discharge summary and a SOAP entry are different documents and
+                the record has always been able to tell them apart. */}
+            <select
+              value={noteType}
+              onChange={(ev) => setNoteType(ev.target.value)}
+              style={{ maxWidth: 240, marginBottom: 8 }}
+            >
+              {NOTE_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+
             <textarea
               value={manual}
               onChange={(ev) => setManual(ev.target.value)}
-              placeholder="Subjective / objective / assessment / plan"
+              placeholder={kind.placeholder}
             />
             <button
               className="btn btn-sm btn-secondary"
               style={{ marginTop: 8 }}
               disabled={busy === 'manual' || manual.trim() === ''}
               onClick={() => run('manual',
-                                 () => api.addNote(encounter.id, { body: manual, type: 'soap' }),
+                                 () => api.addNote(encounter.id,
+                                                   { body: manual, type: noteType }),
                                  () => setManual(''))}
             >
-              {busy === 'manual' ? 'Saving…' : 'Save note'}
+              {busy === 'manual' ? 'Saving…' : `Save ${kind.label.toLowerCase()}`}
             </button>
           </div>
         </>
