@@ -3,7 +3,7 @@
 Har requirement jo aap ne bheji, uska status. Har nayi requirement ke baad
 yeh file update hoti hai.
 
-**Aakhri update:** 10 September 2026 (26 requirements, 1,287 tests green)
+**Aakhri update:** 10 September 2026 (26 requirements, 1,291 tests green)
 
 ---
 
@@ -14,7 +14,7 @@ yeh file update hoti hai.
 | Requirements bheji gayin | **26** |
 | Poori ho chukin | **26** |
 | Test suites | **26** (ab repo mein: `backend/database/`) |
-| Kul tests | **1,287 — sab green** |
+| Kul tests | **1,291 — sab green** |
 | Teeno app chal kar dekhi gayin | ✅ clinic 5174, admin 5173, patient 8082 |
 | GitHub par | **34 commits abhi nahi gaye** (branch `requirements-sweep`) — folder mein sab hai, online purana hai |
 

@@ -401,6 +401,33 @@ DEMO_PLAN=$(sql "SELECT p.slug FROM subscriptions s JOIN plans p ON p.id=s.plan_
 [ "$DEMO_PLAN" = "professional" ] && pass "the demo clinic's plan is untouched" \
                                   || fail "another tenant changed the demo clinic's plan"
 
+
+# ---------------------------------------------------------------
+# Put back what this run invented.
+#
+# §22 names four tiers. Every run of this suite created a fifth and left it
+# there, so the platform admin's price list had grown to thirty plans — a
+# page of test litter in front of the person whose job is managing pricing.
+# Sign-up was never affected, because the plan is created inactive and
+# publicList() only offers active ones, which is exactly why nobody noticed.
+#
+# A suite that grows the database every time it passes is not free.
+if [ -n "${PINHOLE:-}" ]; then
+  FREE_ID=$(sql "SELECT id FROM plans WHERE slug='free' LIMIT 1" | tr -d '\r' | head -1)
+  # The FK on subscriptions.plan_id is RESTRICT, so anything sitting on the
+  # pinhole plan has to be moved off it before it can go.
+  [ -n "$FREE_ID" ] && sql "UPDATE subscriptions SET plan_id=$FREE_ID WHERE plan_id=$PINHOLE" >/dev/null 2>&1
+  sql "DELETE FROM plans WHERE id=$PINHOLE" >/dev/null 2>&1
+  GONE=$(sql "SELECT COUNT(*) FROM plans WHERE id=$PINHOLE" | tr -d '\r' | head -1)
+  [ "${GONE:-1}" = "0" ] && pass "the pinhole plan is taken back out of the catalogue" \
+                         || fail "the pinhole plan is still in the catalogue"
+fi
+
+# And the catalogue is the four §22 names, with nothing any suite left behind.
+STRAY=$(sql "SELECT COUNT(*) FROM plans WHERE slug NOT IN ('free','starter','professional','enterprise')" | tr -d '\r' | head -1)
+[ "${STRAY:-x}" = "0" ] && pass "the price list is the four tiers and nothing else" \
+                        || fail "$STRAY test plan(s) left in the catalogue"
+
 # ---------------------------------------------------------------
 echo
 echo "=============================================="

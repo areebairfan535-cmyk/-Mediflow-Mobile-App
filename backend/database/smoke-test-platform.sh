@@ -380,7 +380,29 @@ esac
 if [ -n "${NEW_PLAN:-}" ]; then
   R=$(api PUT "/platform/plans/$NEW_PLAN" '{"is_active":false}' "${AAUTH[@]}")
   expect "the test plan is retired afterwards" "$(status_of "$R")" "200"
+
+  # Retiring it is not the same as putting it back. A retired plan is hidden
+  # from sign-up but still sits in the platform admin's price list, and that
+  # list had grown to thirty entries where §22 names four — one per run of
+  # this suite and its neighbour, invisible to customers and squarely in the
+  # face of the person whose job is pricing.
+  #
+  # There is no DELETE on /platform/plans by design: a plan with live
+  # subscriptions must not vanish under them. So this goes through SQL, and
+  # moves anything sitting on it back to Free first, because the foreign key
+  # on subscriptions.plan_id is RESTRICT.
+  FREE_ID=$(sql "SELECT id FROM plans WHERE slug='free' LIMIT 1" | tr -d '\r' | head -1)
+  [ -n "$FREE_ID" ] && sql "UPDATE subscriptions SET plan_id=$FREE_ID WHERE plan_id=$NEW_PLAN" >/dev/null 2>&1
+  sql "DELETE FROM plans WHERE id=$NEW_PLAN" >/dev/null 2>&1
+  GONE=$(sql "SELECT COUNT(*) FROM plans WHERE id=$NEW_PLAN" | tr -d '\r' | head -1)
+  [ "${GONE:-1}" = "0" ] && pass "and taken back out of the catalogue entirely" \
+                         || fail "the test plan is still in the price list"
 fi
+
+# §22 names four tiers. After this suite there should be four.
+STRAY=$(sql "SELECT COUNT(*) FROM plans WHERE slug NOT IN ('free','starter','professional','enterprise')" | tr -d '\r' | head -1)
+[ "${STRAY:-x}" = "0" ] && pass "the price list is the four tiers and nothing else" \
+                        || fail "$STRAY test plan(s) left in the catalogue"
 
 # ---------------------------------------------------------------
 echo

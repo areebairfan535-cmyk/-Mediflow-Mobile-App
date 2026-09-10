@@ -162,7 +162,7 @@ Providers strategy ke peechay: `AnthropicProvider` (asli), `StubProvider`
 |---|---|
 | Phases | 6 / 6 |
 | Test suites | 26 |
-| Tests | 1,287 — sab paas |
+| Tests | 1,291 — sab paas |
 | Backend | Core PHP 8, koi framework nahi |
 | Apps | Patient app (Expo 57), clinic web, admin web |
 
