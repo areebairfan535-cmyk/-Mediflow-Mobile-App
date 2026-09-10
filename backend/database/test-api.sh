@@ -134,9 +134,9 @@ foreach ($router->routeTable() as $r) {
     echo $r['method'], ' ', ($p === '' ? '/api/v1' : $p), "\n";
 }
 PHPDUMP
-  MF_BACKEND="$ROOT/backend" "$PHP" "$DUMP" 2>/dev/null | tr -d '\r' | sort -u > /tmp/mf-routes.$
+  MF_BACKEND="$ROOT/backend" "$PHP" "$DUMP" 2>/dev/null | tr -d '\r' | sort -u > /tmp/mf-routes.$$
   rm -f "$DUMP"
-  REG=$(wc -l < /tmp/mf-routes.$)
+  REG=$(wc -l < /tmp/mf-routes.$$)
   [ "$REG" -gt 150 ] && ok "the route table dumps ($REG routes)" \
                      || bad "could not read the route table" "got $REG lines"
 
@@ -144,13 +144,13 @@ PHPDUMP
   awk '/^## API — implemented endpoints/{f=1} f&&/^## /&&!/implemented endpoints/{exit} f' \
     "$ROOT/README.md" \
     | grep -E '^(GET|POST|PUT|PATCH|DELETE) +/' \
-    | awk '{print $1" "$2}' | sed 's/?.*//' | sort -u > /tmp/mf-readme.$
+    | awk '{print $1" "$2}' | sed 's/?.*//' | sort -u > /tmp/mf-readme.$$
 
   # /billing and /payments were carved out of flat paths that shipped first.
   # Both spellings stay, and the README says so in prose instead of listing
   # each twice. Every exemption below is proved to be a true alias further
   # down, so this list cannot be used to hide a route that is merely missing.
-  cat > /tmp/mf-alias.$ <<'ALIASES'
+  cat > /tmp/mf-alias.$$ <<'ALIASES'
 GET /services
 POST /services
 PUT /services/{id}
@@ -165,9 +165,9 @@ POST /invoices/{id}/cancel
 GET /reports/financial
 GET /reports/receivables
 ALIASES
-  sort -u /tmp/mf-alias.$ -o /tmp/mf-alias.$
+  sort -u /tmp/mf-alias.$$ -o /tmp/mf-alias.$$
 
-  MISSING=$(comm -13 /tmp/mf-readme.$ /tmp/mf-routes.$ | comm -23 - /tmp/mf-alias.$)
+  MISSING=$(comm -13 /tmp/mf-readme.$$ /tmp/mf-routes.$$ | comm -23 - /tmp/mf-alias.$$)
   if [ -z "$MISSING" ]; then
     ok "every registered route is in the listing, or a documented alias"
   else
@@ -175,14 +175,14 @@ ALIASES
         "$(printf '%s' "$MISSING" | tr '\n' ' ')"
   fi
 
-  INVENTED=$(comm -23 /tmp/mf-readme.$ /tmp/mf-routes.$)
+  INVENTED=$(comm -23 /tmp/mf-readme.$$ /tmp/mf-routes.$$)
   if [ -z "$INVENTED" ]; then
     ok "and the listing invents none"
   else
     bad "the README lists $(printf '%s\n' "$INVENTED" | wc -l) routes that do not exist" \
         "$(printf '%s' "$INVENTED" | tr '\n' ' ')"
   fi
-  rm -f /tmp/mf-routes.$ /tmp/mf-readme.$ /tmp/mf-alias.$
+  rm -f /tmp/mf-routes.$$ /tmp/mf-readme.$$ /tmp/mf-alias.$$
 fi
 
 step "9. The aliases the listing skips really are aliases"

@@ -190,6 +190,16 @@ step "6. The layers hold (sec 24)"
 # The exemptions each have to earn themselves, because an exemption list is
 # where a real leak hides.
 
+# Every check below reads the source tree through a relative path, so it has
+# to be standing in it. Started from anywhere else the greps match nothing,
+# and "no SQL outside the repositories" would pass for the emptiest of
+# reasons — which is how this step spent its first day: green from the repo
+# root, six loud failures and four silent passes from backend/database.
+BACKEND="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$BACKEND" 2>/dev/null && [ -d app ] \
+  && ok "reading the source tree at $BACKEND" \
+  || bad "cannot reach the backend tree" "looked in $BACKEND"
+
 for layer in Controllers Services Repositories Models Middleware Core; do
   N=$(ls app/$layer/*.php 2>/dev/null | wc -l | tr -d ' ')
   [ "${N:-0}" -gt 0 ] && ok "the $layer layer exists ($N files)" \
@@ -198,7 +208,17 @@ done
 
 # SQL text anywhere but the repositories. Core/Repository.php is the base
 # class every repository extends — it IS the layer, not an escape from it.
-SQLLEAK=$(grep -rlE "SELECT .* FROM |INSERT INTO |UPDATE [a-z_]+ SET |DELETE FROM " \
+SQLPAT="SELECT .* FROM |INSERT INTO |UPDATE [a-z_]+ SET |DELETE FROM "
+
+# The pattern has to be able to find SQL at all. If it ever stops matching —
+# a reworded query, an edited regex — every check that follows goes green
+# while looking at nothing. The repositories are where SQL is supposed to
+# live, so that is where the pattern proves it still works.
+RSQL=$(grep -rlE "$SQLPAT" app/Repositories/ --include=*.php 2>/dev/null | wc -l | tr -d ' ')
+[ "${RSQL:-0}" -gt 15 ] && ok "the SQL pattern still finds SQL ($RSQL repositories)" \
+                        || bad "the SQL pattern matches almost nothing" "only $RSQL repositories"
+
+SQLLEAK=$(grep -rlE "$SQLPAT" \
     app/ --include=*.php 2>/dev/null \
   | grep -v '^app/Repositories/' \
   | grep -v '^app/Core/Repository.php$' \
