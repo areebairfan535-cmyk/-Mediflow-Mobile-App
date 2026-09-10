@@ -57,6 +57,7 @@ else
         test-onboarding.sh
         test-presence.sh
         test-push.sh
+        test-phases.sh
     )
 fi
 

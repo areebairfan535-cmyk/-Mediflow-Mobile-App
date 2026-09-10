@@ -3,7 +3,7 @@
 Har requirement jo aap ne bheji, uska status. Har nayi requirement ke baad
 yeh file update hoti hai.
 
-**Aakhri update:** 9 September 2026 (26 requirements, 1036 tests green)
+**Aakhri update:** 10 September 2026 (26 requirements, 1,270 tests green)
 
 ---
 
@@ -13,10 +13,10 @@ yeh file update hoti hai.
 |---|---|
 | Requirements bheji gayin | **26** |
 | Poori ho chukin | **26** |
-| Test suites | **25** (ab repo mein: `backend/database/`) |
-| Kul tests | **1036 — sab green** |
+| Test suites | **26** (ab repo mein: `backend/database/`) |
+| Kul tests | **1,270 — sab green** |
 | Teeno app chal kar dekhi gayin | ✅ clinic 5174, admin 5173, patient 8082 |
-| GitHub par | **5 commits abhi nahi gaye** — folder mein sab hai, online purana hai |
+| GitHub par | **34 commits abhi nahi gaye** (branch `requirements-sweep`) — folder mein sab hai, online purana hai |
 
 Aakhri wali line pehle "sab kuch push ho chuka" kehti thi. Woh sach tha jab
 likhi gayi, aur baad mein sach nahi raha — kaam hota raha aur push roka gaya.
@@ -64,7 +64,7 @@ Do gaps thay, dono bhare:
 Faida sirf safai nahi: "kaun se columns secret hain" ab ek chhoti file parh
 kar pata chal jata hai, har query audit kiye baghair.
 
-### 19 — API Structure & Endpoints ✅
+### 19 — API Structure & Endpoints ✅ *(10 Sept ko dobara jaanchi — neeche)*
 
 Baarah groups mein se 10 sahi thay. Do ke naam ghalat, do bilkul ghayab.
 
@@ -74,12 +74,12 @@ Baarah groups mein se 10 sahi thay. Do ke naam ghalat, do bilkul ghayab.
 - `GET /api/v1` pehle 404 deta tha, ab apne groups ginwata hai
 - Naye: `/labs/orders/{id}`, `/labs/results`, `/payments/{id}`
 
-**Suite:** `test-api.sh` — 58
+**Suite:** `test-api.sh` — 58 *(ab 97)*
 
 ### 20 — Database Architecture & Tables ✅
 
-Saari 31 tables maujood, 99 foreign keys, sab InnoDB, har tenant table mein
-`organization_id`.
+Saari 31 tables maujood, 99 foreign keys *(ab 100)*, sab InnoDB, har tenant
+table mein `organization_id`.
 
 - **`staff` table bani hui thi magar khaali aur bekaar** — code mein kahin use
   hi nahi hoti thi. Ab zinda: employee number, department, designation, hire
@@ -88,7 +88,7 @@ Saari 31 tables maujood, 99 foreign keys, sab InnoDB, har tenant table mein
 Nota: requirement "28 tables" kehti hai magar us mein **31 naam** ginwaye hain.
 Ginti spec mein ghalat hai, project mein nahi.
 
-**Suite:** `test-schema.sh` — 44
+**Suite:** `test-schema.sh` — 44 *(ab 97)*
 
 ### 21 — Security & Audit Logging ✅
 
@@ -104,7 +104,7 @@ Chaar controls ke gaps bhare:
 - **Backups aur disaster recovery bilkul nahi thay** — `backup.php` aur
   `restore.php` banaye, aur restore ko scratch database par **aazma kar dekha**
 
-**Suite:** `test-security.sh` — 34
+**Suite:** `test-security.sh` — 34 *(ab 38)*
 
 ### 22 — Compliance & Localization ✅
 
@@ -117,7 +117,7 @@ nahi.
   chhapti thi. Karachi clinic ki invoice par `09 Sep` chhapta tha jis din
   wahan **10 tareekh** ho chuki hoti thi.
 
-**Suite:** `test-localization.sh` — 29
+**Suite:** `test-localization.sh` — 29 *(ab 35)*
 
 ### 23 — File Management & Notifications ✅
 
@@ -130,7 +130,7 @@ Notification engine pehle se mazboot tha. File storage bhi zyada tar.
   tha**. Ab issue karte waqt SHA-256 ke saath file rakhi jaati hai. Draft phir
   bhi store nahi hota.
 
-**Suite:** `test-files.sh` — 41
+**Suite:** `test-files.sh` — 41 *(ab 59)*
 
 ### 24 — Development Phases & Timeline ✅
 
@@ -202,11 +202,46 @@ Do bugs bhi theek kiye jo **test ke apne** thay, code ke nahi:
 
 ---
 
+## 10 September — wahi chhe requirements, dobara
+
+Aap ne 19–24 dobara bhejin. Har ek mein kuch nikla, aur tqreeban har baar
+ek hi shakl ka: **code sahi tha, us par nazar rakhne wali cheez nahi thi.**
+
+| # | Dobara jaanchne par kya nikla |
+|---|---|
+| 19 API | Baarah groups sab chal rahe hain. Magar README ki endpoint list **82 routes** se peechay thi, aur `/billing`, `/payments`, `/insurance`, `/claims` aur staff ka `/notifications` us mein **bilkul nahi** thay — parhne wala samajhta ke insurance ka koi HTTP surface hi nahi. Ab list poori hai aur `test-api` usay router ki apni table se milata hai. |
+| 20 Database | Saari tables maujood. Teen structural baatein sach thin magar koi jaanchta nahi tha: har tenant table ke `organization_id` par index, poore schema par ek hi charset, har table par primary key. |
+| 21 Security | XSS ka check **fail ho hi nahi sakta tha** — dono branch `ok()` bulate thay, aur agli line response ke *body* mein ek header dhoondti thi jo kabhi mangwaya hi nahi gaya. Aur **22 jagah** audit `update` bina purani value ke likhta tha: 4,680 se 9,360 hui invoice trail mein sirf "9360" thi. |
+| 22 Compliance / Localization | Tax ka **rate** configurable tha, **rule** nahi. Nayi market kholo to hamesha "upar lagao, naam Tax" milta — VAT-inclusive mulk mein har invoice rate ke barabar **zyada**. Ab `tax_mode` aur `tax_label` columns hain; Ireland poore API se khola gaya. |
+| 23 Files / Notifications | Har document par SHA-256 likha jata tha aur **kabhi parha nahi jata tha** — jabke `DocumentStore` ke apne comment mein likha hai ke checksum hi us copy ko qeemti banata hai. Ab download se pehle verify hota hai; badle huye bytes 409 dete hain. |
+| 24 Phases | `PHASES.md` khud purani ho chuki thi — 44 tables aur 99 foreign keys keh rahi thi jab 45 aur 100 thay. Ab `test-phases.sh` us ke daawe jaanchti hai. |
+
+Raaste mein do bugs bhi nikle jo kisi requirement ne nahi maange thay:
+
+- **Paged list se row gum ho sakti thi.** `invoices`, `claims`, `patients`,
+  `prescriptions` aur platform ki organizations `created_at` par order karti
+  thin bina tiebreaker ke. Ek hi second mein bani rows ka order defined nahi
+  hota, to page ke kinare wali row **do pages par** dikhti ya **kisi par
+  nahi**. `/invoices` do lagataar requests par do alag lists de raha tha.
+- **Layering check chal hi nahi raha tha** jab suite `backend/database` se
+  chalayi jati — chhe check zor se fail hote aur chaar **khaamoshi se pass**,
+  kyunke khali grep ka matlab khali leak list hai.
+
+---
+
 ## Ab kya baaki hai
 
 **Aap ke document se koi nayi requirement abhi nahi aayi.**
 
-Jo aap ne bheji, sab poori ho chuki hain. Agar aap ke MediFlow document mein
+Jo aap ne bheji, sab poori ho chuki hain. 10 September ko 19–24 dobara jaanchi
+gayin aur har ek mein kuch nikla — is liye "poori ho chuki" ka matlab yeh
+nahi ke dobara dekhne se kuch na milega. Aam taur par jo milta hai woh nateeje
+ki ghalati nahi hoti; woh yeh hoti hai ke koi qaida sach to hai magar us par
+koi pehredaar nahi.
+
+**Do faisle aap ke zimme hain:** branch `requirements-sweep` (34 commits) main
+mein merge karni hai ya PR kholna hai, aur kya MariaDB + PHP server band kar
+doon jo main ne chalaye thay. Agar aap ke MediFlow document mein
 aur sections hain, woh bhej dein — main wahi tarteeb rakhungi: pehle audit
 (kya pehle se hai, kya nahi), phir jo kami ho woh banana, phir test se sabit
 karna.
