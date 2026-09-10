@@ -74,6 +74,46 @@ NONINNO=$(sql "SELECT COUNT(*) FROM information_schema.tables
                 WHERE table_schema='$DB' AND engine <> 'InnoDB'")
 want "every table is InnoDB" "$NONINNO" "0"
 
+# Carrying organization_id is not the same as being able to use it. Every
+# tenant-scoped query filters on that column, so if it does not lead an index
+# the query reads the whole table — correct, and slower every week. This is
+# the kind of thing nobody notices on seed data and everybody notices in a
+# clinic with four years of history.
+UNINDEXED=$(sql "
+  SELECT COUNT(*) FROM information_schema.tables t
+   JOIN information_schema.columns c
+     ON c.table_schema=t.table_schema AND c.table_name=t.table_name
+    AND c.column_name='organization_id'
+   WHERE t.table_schema='$DB' AND t.table_type='BASE TABLE'
+     AND NOT EXISTS (SELECT 1 FROM information_schema.statistics s
+                      WHERE s.table_schema=t.table_schema
+                        AND s.table_name=t.table_name
+                        AND s.column_name='organization_id'
+                        AND s.seq_in_index=1)")
+want "and organization_id leads an index on every one" "$UNINDEXED" "0"
+
+# One charset, or names come back as question marks from whichever table
+# disagreed — and a JOIN across the mismatch cannot use its index.
+CHARSETS=$(sql "SELECT COUNT(DISTINCT SUBSTRING_INDEX(table_collation,'_',1))
+                  FROM information_schema.tables
+                 WHERE table_schema='$DB' AND table_type='BASE TABLE'")
+want "one charset across the schema" "$CHARSETS" "1"
+MB4=$(sql "SELECT COUNT(*) FROM information_schema.tables
+            WHERE table_schema='$DB' AND table_type='BASE TABLE'
+              AND table_collation NOT LIKE 'utf8mb4%'")
+want "and it is utf8mb4" "$MB4" "0"
+
+# A table without a primary key cannot be replicated row-based, and gives
+# nothing to point a foreign key at.
+NOPK=$(sql "
+  SELECT COUNT(*) FROM information_schema.tables t
+   WHERE t.table_schema='$DB' AND t.table_type='BASE TABLE'
+     AND NOT EXISTS (SELECT 1 FROM information_schema.table_constraints k
+                      WHERE k.table_schema=t.table_schema
+                        AND k.table_name=t.table_name
+                        AND k.constraint_type='PRIMARY KEY')")
+want "every table has a primary key" "$NOPK" "0"
+
 step "3. staff is a table, not a diagram"
 TOK=$(curl -s -X POST "$BASE/auth/login" -H 'Content-Type: application/json' \
         -d '{"email":"owner@clinic.test","password":"Password123"}' \
