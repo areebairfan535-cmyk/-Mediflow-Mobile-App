@@ -12,6 +12,55 @@ Built to the *MediFlow Complete Development Plan* — section numbers below
 
 ---
 
+## What this is, and what it is not
+
+Most clinic software is a calendar with a patient list attached. Booking is the
+product, and billing is a report you export at month end. MediFlow is built the
+other way round: it is a **medical revenue-cycle platform**, and the clinical
+work is how a charge comes to exist.
+
+Two claims follow from that, and both are checkable rather than aspirational.
+
+**The patient app is the front door.** Not a viewer bolted on at the end — the
+place a patient enters the system and stays in it. From the app alone a patient
+can find a doctor who is free, book, be seen, read the prescription, open the
+invoice and **pay it**:
+
+```
+POST /invoices/{id}/pay      →  starts the payment
+POST /payments/confirm       →  settles it
+```
+
+Neither endpoint takes an amount from the client. The invoice is resolved from
+the caller's own record and the figure is read off it, so the front door cannot
+be used to negotiate the price.
+
+**Billing and claims are the commercial engine.** The chain from a visit to
+money is not a feature at the edge of the product; it is the spine. What the
+demo database holds today:
+
+| | |
+|---|---|
+| Invoices | 1,849 — of which **205** were raised straight off a visit |
+| Payments taken | 841 |
+| Refunds | 165 |
+| Insurance claims | 345, each with its own line items |
+| Invoiced | 15,229,758 |
+| Collected | 1,598,567 |
+| Outstanding | 13,631,191 |
+
+The last three are the reason the split matters. Every invoice divides into
+`patient_payable` and `insurance_payable` — today 14,634,664 owed by patients
+and 595,094 by insurers, across the 130 invoices that carry an insurer share.
+A platform that only tracked a total could not tell a clinic who to chase.
+
+What it is **not**, deliberately: a hospital ERP, a pharmacy stock system, or a
+telemedicine product. Those are named under
+[Future expansions](#future-expansions), and the reasoning for leaving them out
+is in [`docs/MVP-SCOPE.md`](docs/MVP-SCOPE.md).
+
+---
+
 ## What exists today
 
 ```
@@ -1359,6 +1408,34 @@ AI_PROVIDER=stub
 
 `GET /ai/status` reports which one answered, and the clinic app shows its AI
 buttons only when that says a provider is live.
+
+### Future expansions
+
+Six directions the platform is built to grow into. None of them is started —
+this is a roadmap, not a status list. What each row gives is the **seam**: the
+part that already exists and would be extended, so the estimate of what remains
+is honest rather than optimistic.
+
+The two columns matter separately. A wide seam means the work is addition; a
+narrow one means the groundwork is a placeholder and most of the job is still
+there.
+
+| Direction | The seam that exists today | What is genuinely missing |
+|---|---|---|
+| **Hospital management** | Organizations, staff records, 10 roles and 51 permissions | Wards, beds, admissions, discharge, rosters, payroll. Deliberately absent — see [`docs/MVP-SCOPE.md`](docs/MVP-SCOPE.md) |
+| **Pharmacy** | `medications` is a real catalogue and `prescription_items.medication_id` points into it, so a prescribed drug is already an identified product, not free text | Stock levels, batches, expiry, dispensing, suppliers, purchase orders |
+| **Lab integrations** | The lab workflow is built and used: **132 orders, 134 results**, and 17 routes covering them. Results already reach the patient app | The *integration* — receiving results from an external lab system (HL7/FHIR), rather than a person typing them in |
+| **Telemedicine** | `appointments.type` already accepts `teleconsult`, and one booking uses it | Everything that would make it mean something: no video, no session, no waiting room. **The value is accepted and then ignored** — booking a teleconsult today behaves exactly like booking a normal visit |
+| **Patient–provider messaging** | A `Channel` strategy with five implementations (in-app, push, SMS, SMTP, WhatsApp) and a `Dispatcher` that routes events | Two-way conversation. `notifications` carries a recipient and no sender, so it can deliver but cannot reply. Threads, authorship and read state per participant are new |
+| **AI automation** | The largest seam of the six. `AiProvider` is a strategy, `AiProviders` a factory, and `AnthropicProvider` is written. Billing, documentation and claim assistants run behind it | Only credentials — set `AI_PROVIDER` and a key and it is live. This is the one row where nothing needs building |
+
+The telemedicine row is worth reading twice, because it is the trap this project
+has hit before: a column existed, so the feature looked half-built when nothing
+read it. The rule that came out of that is in
+[`docs/REQUIREMENTS-STATUS.md`](docs/REQUIREMENTS-STATUS.md) — *do not check
+whether a column exists, check whether anything reads it.* `teleconsult` is left
+in the enum because it is a genuine appointment type a clinic may want to
+record; it is listed here so nobody mistakes it for a video feature.
 
 ---
 

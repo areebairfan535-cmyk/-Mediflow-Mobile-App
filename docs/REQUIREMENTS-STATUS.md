@@ -157,6 +157,27 @@ clinic banata hai (jo test shuru hote waqt maujood nahi tha) aur usay pehle
 patient tak le jata hai. Differentiator positioning hai; revenue cycle waqai
 chalta hai. Future expansions explicitly future.
 
+**10 September ko dobara jaanchi** ("same wahi karna hai"). Onboarding sahi
+tha — 25/25 green, aur paanchon qadam tarteeb se. Baaki do hisse **sirf
+zubani** the: code chalta tha, magar likha kahin nahi tha. Ab README mein do
+hisse aa gaye:
+
+- **"What this is, and what it is not"** — patient app front door hai, iska
+  saboot ye ke wahan se paisa diya ja sakta hai (`POST /invoices/{id}/pay`),
+  aur amount client se nahi aati, invoice se padhi jati hai. Billing engine
+  hai, iska saboot demo DB ke asli aadad: 1,849 invoices (205 seedha visit
+  se), 841 payments, 345 claims, aur payer split — 14,634,664 patient par,
+  595,094 insurer par.
+- **"Future expansions"** — chhe raaste, har ek ke saamne **do** cheezein:
+  aaj kya mojood hai jis par woh banega, aur kya waqai baaki hai.
+
+Ek cheez pakdi gayi jo pehle nahi dikhi thi: `appointments.type` mein
+**`teleconsult` pehle se mojood hai** aur ek booking us par hai — magar us se
+koi farq nahi parta. Na video, na session. Value qubool hoti hai aur
+nazarandaz ho jati hai. Yeh wahi purana jaal hai
+([Ek baat jo baar baar nikli](#ek-baat-jo-baar-baar-nikli)), isliye README mein
+saaf likh diya hai taake koi ise aadha bana hua telemedicine na samjhe.
+
 Ek baat samajhne laayak: doctor ko team mein add karne se woh **bookable nahi**
 hota — uska clinical profile (`POST /doctors`) alag qadam hai, aur yeh jaan
 boojh kar hai. Team ka hissa hona (access) aur bookable clinician hona
