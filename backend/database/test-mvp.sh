@@ -130,11 +130,32 @@ RX=$(id_of "$R" id)
 C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${D[@]}" "$BASE/prescriptions/$RX/issue")
 want "prescription issued" "$C" "200"
 
-# A billable service — this is the "select services" step.
-SVC=$(sql "SELECT code FROM services WHERE organization_id=1 AND is_active=1 ORDER BY id LIMIT 1")
+# A billable service — this is §27's "services select karke" step, and it has
+# to be a real selection.
+#
+# It was not. The endpoint takes `service_id`; `service_code` is not a field
+# it knows, and an allow-list validator drops what it does not know without
+# complaining. So this step recorded a root canal with no service attached,
+# the invoice below billed a consultation fee and nothing else, and every
+# assertion in the chain still passed — because none of them ever looked at
+# what was ON the invoice.
+SVC_ID=$(sql "SELECT s.id FROM services s
+                JOIN service_prices p ON p.service_id = s.id
+               WHERE s.organization_id = 1 AND s.is_active = 1
+                 AND s.code <> 'CONSULT-GEN'
+               ORDER BY s.id LIMIT 1" | tr -d '\r' | head -1)
+SVC_NAME=$(sql "SELECT name FROM services WHERE id = ${SVC_ID:-0}" | tr -d '\r' | head -1)
+[ -n "$SVC_ID" ] && ok "a billable service is selected: $SVC_NAME (id $SVC_ID)" \
+                 || bad "no priced service in the catalogue to select"
+
 C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${D[@]}" "$BASE/encounters/$ENC/procedures" \
-      -d "{\"name\":\"Root canal, first visit\",\"service_code\":\"$SVC\",\"notes\":\"Pulp extirpated, dressing placed\"}")
+      -d "{\"name\":\"Root canal, first visit\",\"service_id\":${SVC_ID:-0},\"outcome\":\"Pulp extirpated, dressing placed\"}")
 if [ "$C" = "201" ] || [ "$C" = "200" ]; then ok "procedure recorded -> $C"; else bad "procedure failed" "got $C"; fi
+
+# The selection has to have stuck, or the invoice cannot possibly carry it.
+LINKED=$(sql "SELECT COUNT(*) FROM procedures
+               WHERE encounter_id = $ENC AND service_id = ${SVC_ID:-0}" | tr -d '\r' | head -1)
+want "and the service really is attached to the procedure" "$LINKED" "1"
 
 # ---------------------------------------------------------------
 step "5. The visit is completed, billed, and paid"
@@ -146,6 +167,24 @@ want "consultation completed" "$C" "200"
 R=$(curl -s -X POST "${D[@]}" "$BASE/encounters/$ENC/invoice" -d '{}')
 INV=$(id_of "$R" id)
 [ -n "$INV" ] && ok "invoice drafted from the visit (id $INV)" || bad "no invoice" "$(echo "$R" | head -c 300)"
+
+# The API returns what it could NOT charge for, on purpose — the controller
+# says a biller must see it rather than have it swallowed. So nothing the
+# doctor did may fall off the bill.
+case "$R" in
+  *'"skipped":[]'*) ok "nothing billable was left off the invoice" ;;
+  *) bad "the invoice dropped billable work" "$(echo "$R" | grep -o '"skipped":.*' | head -c 200)" ;;
+esac
+
+# §27 says the invoice comes from the services selected — so the selected one
+# has to be a line on it, not just the visit fee.
+ONBILL=$(sql "SELECT COUNT(*) FROM invoice_items
+               WHERE invoice_id = $INV AND service_id = ${SVC_ID:-0}" | tr -d '\r' | head -1)
+want "the service the doctor selected is on the bill" "$ONBILL" "1"
+
+NLINES=$(sql "SELECT COUNT(*) FROM invoice_items WHERE invoice_id = $INV" | tr -d '\r' | head -1)
+[ "${NLINES:-0}" -ge 2 ] && ok "which bills the visit AND the work done ($NLINES lines)" \
+                         || bad "the invoice has $NLINES line — the work was not billed"
 
 C=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${D[@]}" "$BASE/invoices/$INV/issue" -d '{}')
 want "invoice issued" "$C" "200"
