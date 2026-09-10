@@ -151,6 +151,105 @@ N=$(sql "SELECT COUNT(DISTINCT channel) FROM notifications")
 N=$(sql "SELECT COUNT(*) FROM notifications WHERE status='queued' AND attempts >= 5")
 want "nothing is retried for ever" "$N" "0"
 
+step "10. Every kind §19 names can actually be stored and read back"
+# Step 1 asks the enum whether it knows these words. That is a schema check,
+# and it passed for 'imaging' and 'discharge' while the store held not one
+# document of either kind and nothing had ever put one there. Declaring a
+# category and supporting it are different claims, so this makes the round
+# trip: upload, list, download.
+PATIENT=$(sql "SELECT id FROM patients WHERE organization_id=1 ORDER BY id LIMIT 1")
+printf '%%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%%%EOF\n' > fixture-doc.pdf
+UP=(-H "Authorization: Bearer $TOK" -H 'X-Organization-Id: 1')
+MADE=""
+for cat in prescription lab_report imaging invoice discharge; do
+  BODY=$(curl -s -X POST "${UP[@]}" \
+      -F "file=@fixture-doc.pdf" -F "title=Suite $cat" -F "category=$cat" \
+      -F "visibility=patient_visible" "$BASE/patients/$PATIENT/documents")
+  ID=$(printf '%s' "$BODY" | grep -o '"id":[0-9]\+' | head -1 | cut -d: -f2)
+  if [ -n "$ID" ] && printf '%s' "$BODY" | grep -q "\"category\":\"$cat\""; then
+    ok "a '$cat' document is stored (id $ID)"
+    MADE="$MADE $ID"
+    C=$(curl -s -o /dev/null -w '%{http_code}' "${UP[@]}" "$BASE/documents/$ID/download")
+    [ "$C" = "200" ] && ok "and reads back" || bad "'$cat' stored but will not download" "$C"
+  else
+    bad "a '$cat' document could not be stored" "$(printf '%s' "$BODY" | head -c 120)"
+  fi
+done
+rm -f fixture-doc.pdf
+
+step "11. A stored document is checked against its checksum before it is served"
+# medical_documents has carried checksum_sha256 since the beginning, and
+# DocumentStore says outright that it "is what makes the kept copy worth
+# having — it can be shown to be the same bytes". Nothing ever showed it:
+# the column was written on every document and compared on none, so bytes
+# altered on disk were served as though authoritative.
+DOC=$(printf '%s' "$MADE" | awk '{print $1}')
+if [ -z "$DOC" ]; then
+  bad "no document to verify"
+else
+  REL=$(sql "SELECT storage_path FROM medical_documents WHERE id=$DOC")
+  ABS="$REPO/backend/storage/app/public/$REL"
+  if [ ! -f "$ABS" ]; then
+    bad "cannot find the stored bytes to tamper with" "$ABS"
+  else
+    C=$(curl -s -o /dev/null -w '%{http_code}' "${UP[@]}" "$BASE/documents/$DOC/download")
+    want "an untouched document downloads" "$C" "200"
+
+    cp "$ABS" "$ABS.suitebak"
+    printf 'TAMPERED' >> "$ABS"
+    C=$(curl -s -o /dev/null -w '%{http_code}' "${UP[@]}" "$BASE/documents/$DOC/download")
+    [ "$C" = "409" ] && ok "altered bytes are refused, not served ($C)" \
+                     || bad "altered bytes were served" "got $C, wanted 409"
+
+    # And the refusal is written down, because somebody has to find out.
+    N=$(sql "SELECT COUNT(*) FROM audit_logs
+              WHERE action='integrity_failed' AND resource_id=$DOC")
+    [ "${N:-0}" -gt 0 ] && ok "and the mismatch is in the audit trail" \
+                        || bad "an integrity failure left no trace"
+
+    mv "$ABS.suitebak" "$ABS"
+    C=$(curl -s -o /dev/null -w '%{http_code}' "${UP[@]}" "$BASE/documents/$DOC/download")
+    want "and it serves again once restored" "$C" "200"
+  fi
+fi
+
+# Leave the store as it was found: these were the suite's own uploads.
+for ID in $MADE; do
+  REL=$(sql "SELECT storage_path FROM medical_documents WHERE id=$ID")
+  [ -n "$REL" ] && rm -f "$REPO/backend/storage/app/public/$REL"
+  sql "DELETE FROM medical_documents WHERE id=$ID" >/dev/null
+done
+LEFT=$(sql "SELECT COUNT(*) FROM medical_documents WHERE title LIKE 'Suite %'")
+want "the suite cleans up after itself" "$LEFT" "0"
+
+step "12. Every send leaves by the one door"
+# §20's word is "centralize". Handlers existing (step 7) is not the same
+# claim: it stays true even if half the codebase quietly calls mail() or
+# posts to Expo on its own. What makes the engine central is that nothing
+# else delivers, so that is what gets asked — of the source, because a rule
+# like this erodes one convenient shortcut at a time and never fails a test
+# while doing it.
+BACKEND="$REPO/backend"
+DELIVERY='\bmail\(|stream_socket_client|fsockopen|exp\.host|api\.twilio|graph\.facebook'
+OUTSIDE=$(cd "$BACKEND" && grep -rnE "$DELIVERY" app --include=*.php 2>/dev/null \
+  | grep -v '^app/Services/Notifications/' \
+  | grep -v ':\s*\*' | grep -v '//' || true)
+[ -z "$OUTSIDE" ] && ok "nothing outside Services/Notifications delivers a message" \
+                  || bad "a send bypasses the notification engine" "$(printf '%s' "$OUTSIDE" | head -2)"
+
+# And the pattern must be able to find the real senders, or the check above
+# is green for having read nothing.
+INSIDE=$(cd "$BACKEND" && grep -rlE "$DELIVERY" app/Services/Notifications 2>/dev/null | wc -l)
+[ "${INSIDE:-0}" -ge 2 ] && ok "the sweep can see $INSIDE channel(s) that really deliver" \
+                         || bad "the delivery sweep matches nothing at all" "${INSIDE:-0}"
+
+# One queue means one table: a channel that invented its own store would be
+# outside everything the retry cap and the trail cover.
+QUEUES=$(cd "$BACKEND" && grep -rhoE "INSERT INTO [a-z_]+" app/Services/Notifications app/Services/NotificationService.php 2>/dev/null \
+  | awk '{print $3}' | sort -u | grep -v '^notifications$' || true)
+[ -z "$QUEUES" ] && ok "and they all queue into 'notifications'" \
+                 || bad "a channel writes its own queue" "$(printf '%s' "$QUEUES" | tr '\n' ' ')"
+
 echo
 echo "========================================="
 echo "passed: $PASS   failed: $FAIL"

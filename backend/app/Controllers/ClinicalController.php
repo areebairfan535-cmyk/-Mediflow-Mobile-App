@@ -257,6 +257,46 @@ final class ClinicalController extends Controller
             throw new NotFoundException('The stored file is missing.');
         }
 
+        // §26: a checksum nothing compares is decoration. DocumentStore says
+        // outright that the checksum "is what makes the kept copy worth having
+        // — it can be shown to be the same bytes", and until now nothing ever
+        // showed it: every document was written with a SHA-256 and served
+        // without one being computed.
+        //
+        // What is at stake is that an issued invoice or prescription is the
+        // specific piece of paper a patient or a pharmacy is holding. Serving
+        // bytes that no longer match what was recorded, silently, is worse
+        // than serving nothing: it looks authoritative and is not.
+        //
+        // A row written before the column existed carries no checksum. Those
+        // are served as before — refusing them would break access to real
+        // records to enforce a rule they were never written under.
+        if (!empty($document['checksum_sha256'])) {
+            $actual = (string) hash_file('sha256', $absolute);
+
+            if (!hash_equals((string) $document['checksum_sha256'], $actual)) {
+                error_log(sprintf(
+                    '[integrity] medical_document %d: stored bytes do not match '
+                    . 'the recorded checksum (recorded %s, found %s)',
+                    (int) $document['id'],
+                    (string) $document['checksum_sha256'],
+                    $actual,
+                ));
+
+                (new AuditService())->log(
+                    $request, 'integrity_failed', 'medical_document', (int) $document['id'],
+                    ['checksum_sha256' => $document['checksum_sha256']],
+                    ['checksum_sha256' => $actual],
+                    (int) $document['patient_id'],
+                );
+
+                throw new \App\Core\ConflictException(
+                    'This document does not match the checksum recorded when it was '
+                    . 'stored, so it has not been served. Please contact the clinic.'
+                );
+            }
+        }
+
         (new AuditService())->log(
             $request, 'view', 'medical_document', (int) $document['id'], null, null,
             (int) $document['patient_id'],
