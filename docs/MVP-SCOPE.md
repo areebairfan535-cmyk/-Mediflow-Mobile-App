@@ -13,6 +13,13 @@ Scope creep asli khatra hota hai: har feature maqool lagta hai, aur MVP kabhi
 release nahi hota. Requirement ne saat cheezein mana ki thin. Saat-o ka daayra
 mehfooz raha.
 
+Neeche wali tasdeeq pehle **ek baar haath se** ki gayi thi, aur yahi us ka
+masla tha: scope creep faisle ki shakl mein nahi aata, ek maqool si table ki
+shakl mein aata hai. Ab yeh saat sarhadein `test-mvp.sh` ke **step 7** mein
+har run par jaanchi jaati hain — aur jaanch khud ko sabit karti hai (ek
+"canary" query yeh dikhati hai ke sweep tables dekh bhi rahi hai, warna
+saat-o check khali list par green ho jate).
+
 | Jo mana tha | Tasdeeq kaise ki | Natija |
 |---|---|---|
 | **Hospital ERP** | payroll, salary, ward, bed, admission, roster, leave — koi table dhoondi | ek bhi nahi ✅ |
@@ -20,7 +27,7 @@ mehfooz raha.
 | **Lab management** | sample, specimen, equipment, analyser, barcode — koi table dhoondi | ek bhi nahi ✅ |
 | **Insurance integrations** | `claim_format` ki values, aur claim code mein koi outbound HTTP call | sirf `manual`, koi call nahi ✅ |
 | **AI diagnosis** | AI service kya kya likh sakti hai | sirf 2 cheezein, `diagnoses` nahi ✅ |
-| **Telemedicine** | video, call — koi table dhoondi | ek bhi nahi ✅ |
+| **Telemedicine** | video/room/session ka koi column, aur clients mein koi video SDK | ek bhi nahi ✅ |
 | **Wearables** | device, wearable, vital stream — koi table dhoondi | ek bhi nahi ✅ |
 
 ### Do baareek farq jo samajhna zaroori hai

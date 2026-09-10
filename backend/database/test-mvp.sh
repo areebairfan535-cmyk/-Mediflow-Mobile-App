@@ -195,6 +195,85 @@ echo "$INBOX" | grep -q 'prescription.issued' && ok "they were told about the pr
 echo "$INBOX" | grep -q 'invoice.issued'      && ok "and about the invoice" || bad "no invoice notification"
 echo "$INBOX" | grep -q 'payment.received'    && ok "and that the payment landed" || bad "no payment notification"
 
+# ---------------------------------------------------------------
+step "7. And the seven things §27 forbids are still not here"
+# The workflow above is what the MVP IS. This is what it is NOT, and it is
+# the half more likely to rot: scope creep never arrives as a decision, it
+# arrives as one reasonable-looking table at a time. The boundary was audited
+# once by hand and written into MVP-SCOPE.md; nothing has asked since.
+REPO="${REPO:-/c/Users/Mr Shahram/mediflow}"
+
+forbid() {  # $1 = what §27 excludes, $2 = table-name regex
+  local hits
+  hits=$(sql "SELECT GROUP_CONCAT(table_name) FROM information_schema.tables
+               WHERE table_schema='$DB' AND table_type='BASE TABLE'
+                 AND table_name REGEXP '$2'" | tr -d '\r')
+  if [ -z "$hits" ] || [ "$hits" = "NULL" ]; then
+    ok "no $1"
+  else
+    bad "$1 has appeared" "$hits"
+  fi
+}
+forbid "hospital ERP"   'payroll|salary|ward|bed_|admission|roster|leave'
+forbid "full pharmacy"  'stock|inventory|dispens|batch|supplier|purchase'
+forbid "lab management" 'sample|specimen|equipment|analys|barcode'
+forbid "telemedicine"   'video|telemed|meeting|webrtc'
+forbid "wearables"      'wearable|vital_stream|biometric|fitness'
+
+# The regexes have to be able to match something, or all five pass for having
+# looked at an empty list. 'patients' is not forbidden — it is here to prove
+# the query works.
+CANARY=$(sql "SELECT COUNT(*) FROM information_schema.tables
+               WHERE table_schema='$DB' AND table_type='BASE TABLE'
+                 AND table_name REGEXP 'patient|invoice'" | tr -d '\r')
+[ "${CANARY:-0}" -ge 2 ] && ok "the table sweep can see tables at all ($CANARY)" \
+                         || bad "the table sweep matches nothing" "${CANARY:-0}"
+
+# Insurance: a module is allowed, an integration is not. Every provider must
+# be 'manual', and no code on the claim path may call an insurer.
+NONMANUAL=$(sql "SELECT COUNT(*) FROM insurance_providers WHERE claim_format <> 'manual'" | tr -d '\r')
+want "no insurer is wired up for real submission" "${NONMANUAL:-x}" "0"
+OUTBOUND=$(cd "$REPO/backend" && grep -rlE 'curl_init|fsockopen' \
+    app/Services/ClaimService.php app/Services/EligibilityService.php \
+    app/Repositories/ClaimRepository.php app/Controllers/InsuranceController.php 2>/dev/null || true)
+[ -z "$OUTBOUND" ] && ok "and nothing on the claim path calls out" \
+                   || bad "the claim path makes an outbound call" "$(echo $OUTBOUND)"
+
+# AI advises; it does not diagnose. The whole AI surface must never write a
+# diagnosis row.
+AIDIAG=$(cd "$REPO/backend" && grep -rn "addDiagnosis\|INSERT INTO diagnoses" \
+    app/Services/Ai app/Services/AiAssistantService.php app/Controllers/AiController.php 2>/dev/null || true)
+[ -z "$AIDIAG" ] && ok "AI never writes a diagnosis" \
+                 || bad "AI can write a diagnosis" "$(echo $AIDIAG | head -c 120)"
+
+# Telemedicine, the near miss: an appointment may be LABELLED teleconsult —
+# §3 asks for that — but labelling is not telemedicine. What would make it
+# telemedicine is somewhere to join, so no appointment or encounter may carry
+# a link, a room or a session.
+JOINABLE=$(sql "SELECT GROUP_CONCAT(CONCAT(table_name,'.',column_name))
+                  FROM information_schema.columns
+                 WHERE table_schema='$DB'
+                   AND table_name IN ('appointments','encounters')
+                   AND column_name REGEXP 'video|room|meeting|join|session|link'" | tr -d '\r')
+if [ -z "$JOINABLE" ] || [ "$JOINABLE" = "NULL" ]; then
+  ok "a teleconsult is a label, with nowhere to join"
+else
+  bad "an appointment now carries a way to join a call" "$JOINABLE"
+fi
+# And no client has pulled in a video SDK.
+SDK=$(grep -lE '"(twilio-video|@daily-co|agora-rtc|jitsi|livekit)' \
+    "$REPO"/clinic_web/package.json "$REPO"/admin_web/package.json \
+    "$REPO"/patient_app/package.json 2>/dev/null || true)
+[ -z "$SDK" ] && ok "and no app depends on a video SDK" \
+              || bad "a client has taken a video dependency" "$(echo $SDK)"
+
+# device_tokens looks like a wearable and is not: it is where a push
+# notification goes. It earns its exemption by proving what it holds.
+DT=$(sql "SELECT COUNT(*) FROM information_schema.columns
+           WHERE table_schema='$DB' AND table_name='device_tokens'
+             AND column_name IN ('token','platform','user_id')" | tr -d '\r')
+want "device_tokens is push delivery, not a wearable feed" "${DT:-0}" "3"
+
 echo
 echo "========================================="
 echo "passed: $PASS   failed: $FAIL"

@@ -104,7 +104,7 @@ Expo SDK 57. Payment gateway browser mein khulta hai aur app mein wapis aata hai
 `patient_id` nahi bhejta. Har endpoint session se record nikalta hai — "chart
 47 dikhao" aisi darkhwast hai jiska jawab mumkin nahi hona chahiye.
 
-**Suites:** `smoke-test-patient` (95) · `test-mvp` (27) · `test-location` (11)
+**Suites:** `smoke-test-patient` (95) · `test-mvp` (39) · `test-location` (11)
 
 ---
 
@@ -162,7 +162,7 @@ Providers strategy ke peechay: `AnthropicProvider` (asli), `StubProvider`
 |---|---|
 | Phases | 6 / 6 |
 | Test suites | 26 |
-| Tests | 1,223 — sab paas |
+| Tests | 1,282 — sab paas |
 | Backend | Core PHP 8, koi framework nahi |
 | Apps | Patient app (Expo 57), clinic web, admin web |
 
