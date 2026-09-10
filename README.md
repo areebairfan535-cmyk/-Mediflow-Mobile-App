@@ -124,10 +124,11 @@ bash database/smoke-test-platform.sh     # 64 assertions
 # prove the chain between them holds.
 bash database/test-mvp.sh                # 27 assertions
 
-# The shape of the tables rather than the behaviour on top of them: every
-# table §20 names, tenant scoping, and §5's rule that a medical record carries
-# the clinic, the patient, an author and timestamps.
-bash database/test-schema.sh             # 81 assertions
+# The shape of the code and the tables rather than the behaviour on top of
+# them: every table §20 names, tenant scoping, §5’s rule that a medical record
+# carries the clinic, the patient, an author and timestamps, and §24’s layering
+# — no SQL outside the repositories, and every exemption earning itself.
+bash database/test-schema.sh             # 91 assertions
 
 # §17 on the wire and in the trail: headers, hashing, rate limiting,
 # injection, unreachable upload paths, and a backup that restores.
@@ -205,7 +206,26 @@ admin_web   (React)    ─┘   /api/v1/*
 Routes → Middleware → Controller → Validator → Service → Repository → Model → DB
 ```
 
-The rule from §12 is enforced, not merely aspirational:
+The rule from §12 is enforced, not merely aspirational — and now checked,
+which is a different thing. A layering rule does not fail loudly when it
+erodes: somebody puts one quick query in a controller and everything still
+works. `test-schema.sh` reads the tree and refuses that, with each exemption
+made to earn itself:
+
+- `Core/Repository.php` holds SQL because it **is** the layer, not an escape
+  from it.
+- `RateLimitMiddleware` writes its own atomic upsert — a bucket that must not
+  be read-then-written — and keeps the exemption only while it stays on
+  `rate_limits`. A query there for any other table fails the run.
+- A controller may call `Database::ping()` and nothing else. Asking whether the
+  database is there is a liveness probe, not data access.
+- A service may call `Database::transaction()` and nothing else. Owning the
+  transaction boundary is exactly a service's job — several repository writes
+  where a half-finished one must not survive; running the statements itself is
+  not.
+
+Verified by breaking it: a `SELECT` added to a controller fails two checks, and
+a service running its own statement fails two more.
 
 - **Controllers** validate and delegate. No SQL, no business rules. Most
   methods are under 15 lines.

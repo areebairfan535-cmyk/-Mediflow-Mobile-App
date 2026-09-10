@@ -180,6 +180,54 @@ for t in patients encounters diagnoses medications prescriptions lab_orders \
   fi
 done
 
+
+step "6. The layers hold (sec 24)"
+# §24 names the layers and one rule about them: no SQL in controllers,
+# business logic in services, persistence in repositories. A rule like that
+# does not fail loudly when it erodes — somebody puts one quick query in a
+# controller and everything still works — so it is checked here.
+#
+# The exemptions each have to earn themselves, because an exemption list is
+# where a real leak hides.
+
+for layer in Controllers Services Repositories Models Middleware Core; do
+  N=$(ls app/$layer/*.php 2>/dev/null | wc -l | tr -d ' ')
+  [ "${N:-0}" -gt 0 ] && ok "the $layer layer exists ($N files)" \
+                      || bad "no $layer layer"
+done
+
+# SQL text anywhere but the repositories. Core/Repository.php is the base
+# class every repository extends — it IS the layer, not an escape from it.
+SQLLEAK=$(grep -rlE "SELECT .* FROM |INSERT INTO |UPDATE [a-z_]+ SET |DELETE FROM " \
+    app/ --include=*.php 2>/dev/null \
+  | grep -v '^app/Repositories/' \
+  | grep -v '^app/Core/Repository.php$' \
+  | grep -v '^app/Middleware/RateLimitMiddleware.php$' || true)
+[ -z "$SQLLEAK" ] && ok "no SQL outside the repositories" \
+                  || bad "SQL has leaked into: $(echo $SQLLEAK)"
+
+# The one middleware that writes its own SQL does so for atomicity: the rate
+# limiter's bucket is an upsert that must not be read-then-written. It earns
+# the exemption only while it stays on its own table — a query for anything
+# else there is a leak wearing the exemption as a coat.
+OTHERTABLE=$(grep -oE "(FROM|INTO|UPDATE) [a-z_]+" app/Middleware/RateLimitMiddleware.php 2>/dev/null \
+  | awk '{print $2}' | sort -u | grep -v '^rate_limits$' || true)
+[ -z "$OTHERTABLE" ] && ok "the rate limiter's SQL stays on its own table" \
+                     || bad "RateLimitMiddleware now queries: $(echo $OTHERTABLE)"
+
+# Controllers may not reach the database at all — except to ask whether it is
+# there, which is a liveness probe rather than data access.
+CTRL=$(grep -rhoE "Database::[a-zA-Z]+" app/Controllers/*.php 2>/dev/null | sort -u | grep -v '^Database::ping$' || true)
+[ -z "$CTRL" ] && ok "controllers touch the database only to ping it" \
+               || bad "a controller calls: $(echo $CTRL)"
+
+# Services own the transaction boundary — that is exactly their job, wrapping
+# several repository writes so a half-finished one cannot survive. What they
+# may not do is run statements themselves.
+SVC=$(grep -rhoE "Database::[a-zA-Z]+" app/Services/*.php 2>/dev/null | sort -u | grep -v '^Database::transaction$' || true)
+[ -z "$SVC" ] && ok "services open transactions but run no statements" \
+              || bad "a service calls: $(echo $SVC)"
+
 echo
 echo "========================================="
 echo "passed: $PASS   failed: $FAIL"
