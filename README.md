@@ -30,8 +30,8 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**626/626 end-to-end assertions pass** (78 foundation + 69 clinical +
-111 billing + 95 patient + 87 insurance + 61 AI + 61 subscription +
+**628/628 end-to-end assertions pass** (78 foundation + 69 clinical +
+111 billing + 95 patient + 89 insurance + 61 AI + 61 subscription +
 64 platform). Each suite resets what it depends on and creates what it needs,
 so they can be re-run in any order without re-seeding.
 
@@ -114,7 +114,7 @@ bash database/smoke-test.sh              # 78 assertions
 bash database/smoke-test-clinical.sh     # 69 assertions
 bash database/smoke-test-billing.sh      # 111 assertions
 bash database/smoke-test-patient.sh      # 95 assertions
-bash database/smoke-test-insurance.sh    # 87 assertions
+bash database/smoke-test-insurance.sh    # 89 assertions
 bash database/smoke-test-ai.sh           # 61 assertions
 bash database/smoke-test-subscription.sh # 61 assertions
 bash database/smoke-test-platform.sh     # 64 assertions
@@ -128,6 +128,15 @@ bash database/test-mvp.sh                # 27 assertions
 # table §20 names, tenant scoping, and §5's rule that a medical record carries
 # the clinic, the patient, an author and timestamps.
 bash database/test-schema.sh             # 81 assertions
+
+# §17 on the wire and in the trail: headers, hashing, rate limiting,
+# injection, unreachable upload paths, and a backup that restores.
+bash database/test-security.sh           # 34 assertions
+
+# §10, §11 and §16: tenant isolation, token refresh rotation, RBAC answering
+# the same endpoint three ways, and the HIPAA/GDPR rights — including whether
+# the erasure answer is one the clinic can actually keep.
+bash database/test-compliance.sh         # 43 assertions
 ```
 
 Each suite resets the state it depends on at startup — stale open
@@ -620,6 +629,20 @@ rule it protects.
 **Compliance:** the schema and controls are built *for* HIPAA/GDPR-style
 requirements (§18), but per §18 no compliance claim should be made without the
 audit, contracts and controls to back it.
+
+What `test-compliance.sh` does check is that each right the product *answers*
+is answered for real: the chart read is written down (HIPAA §164.312(b)), the
+patient can take their whole record and only their own (GDPR Art. 15 & 20), and
+an unapproved AI draft does not travel with it.
+
+Erasure is the interesting one. The export says plainly that a clinical record
+cannot be deleted — Art. 17(3) allows the retention — and then makes two
+promises instead: the clinic can correct what is wrong, and it can close the
+app account while the record stays. The suite used to check that the paragraph
+existed. It now walks the second promise end to end: a fresh account reaches
+its own record, the clinic closes it, the door shuts with a 403, and the chart
+is still there. A paragraph about rights that the system cannot honour is worse
+than no paragraph.
 
 Backup and restore ship as scripts, and the restore has been rehearsed against
 a scratch database rather than assumed to work. *Scheduling* them, TLS

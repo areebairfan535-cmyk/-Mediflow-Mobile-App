@@ -273,7 +273,7 @@ final class ClaimRepository extends Repository
             'SELECT icd10_code FROM diagnoses
               WHERE organization_id = :org AND encounter_id = :eid
                 AND icd10_code IS NOT NULL
-              ORDER BY FIELD(type, \x27primary\x27,\x27secondary\x27,\x27provisional\x27,\x27differential\x27)
+              ORDER BY FIELD(type, \'primary\',\'secondary\',\'provisional\',\'differential\')
               LIMIT 1',
             ['org' => $this->scopeBinding(), 'eid' => $encounterId],
         );

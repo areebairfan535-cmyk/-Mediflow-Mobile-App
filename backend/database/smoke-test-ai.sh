@@ -356,18 +356,27 @@ else
     # The suite makes its own: waiting for a draft claim to be lying around
     # meant this never ran at all, which is the failure it exists to prevent.
     # An issued invoice for a patient with an active policy, not yet claimed.
+    # tr -d '\r': the client emits CRLF, and an id with a carriage return
+    # welded to it makes the JSON body below invalid.
+    #
+    # `balance_due > 0` matters: a policy that would pay nothing on a settled
+    # invoice is refused, correctly, and picking one of those made this look
+    # like a broken assistant rather than an invoice with nothing left to
+    # claim.
     CLAIMABLE=$(sql "SELECT i.id FROM invoices i
         JOIN insurance_policies ip ON ip.patient_id = i.patient_id
                                   AND ip.status = 'active'
         LEFT JOIN claims c ON c.invoice_id = i.id
        WHERE i.organization_id = 1
          AND i.status IN ('issued','partially_paid','overdue')
+         AND i.balance_due > 0
          AND c.id IS NULL
-       ORDER BY i.id DESC LIMIT 1")
+       ORDER BY i.id DESC LIMIT 1" | tr -d '\r')
 
     if [ -n "$CLAIMABLE" ]; then
       R=$(api POST /claims "{\"invoice_id\":$CLAIMABLE}" "${OAUTH[@]}")
       NOTREADY=$(jnum "$(body_of "$R")" id)
+      [ -n "$NOTREADY" ] || fail "could not raise a claim to review" "$(body_of "$R")"
     fi
 
     if [ -n "${NOTREADY:-}" ]; then
@@ -382,8 +391,18 @@ else
       # And it goes anyway. The reviewer advises; the human decides.
       R=$(api POST "/claims/$NOTREADY/submit" '{"external_claim_no":"AI-ADVISORY"}' "${OAUTH[@]}")
       expect "and it submits regardless — advice, not a veto" "$(status_of "$R")" "200"
+
+      # Give the cover back. Submitting reserves against the policy's annual
+      # ceiling, and this suite has no reset for that — so without this, each
+      # run ate a little more of it until claims could no longer be raised at
+      # all and this section failed for a reason that was nothing to do with
+      # the assistant. A full rejection releases the whole reservation, which
+      # is the product's own way of undoing a submission.
+      api POST "/claims/$NOTREADY/decision" \
+        '{"approved_amount":0,"rejection_code":"TEST","rejection_reason":"Raised by the AI suite to prove the review does not veto."}' \
+        "${OAUTH[@]}" > /dev/null
     else
-      fail "no claimable invoice to raise a draft claim against"
+      fail "no unclaimed invoice with a balance to review"
     fi
   fi
 

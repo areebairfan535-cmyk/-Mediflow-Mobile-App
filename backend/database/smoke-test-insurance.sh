@@ -238,6 +238,48 @@ esac
 R=$(api POST /claims "{\"invoice_id\":$INV_COPAY}" "${BAUTH[@]}")
 expect "one live claim per invoice" "$(status_of "$R")" "409"
 
+# Claiming an invoice that came from a CONSULTATION, which is a different code
+# path and the one §27 actually walks: it reads the visit's primary diagnosis
+# so the insurer has an ICD-10 code to key off. Every invoice raised in this
+# file is billed straight to a patient with no encounter behind it, so that
+# branch was never entered here — and it was broken, throwing a SQL syntax
+# error on every claim raised from a real visit.
+# Built rather than hunted for: picking any consultation-linked invoice found
+# one whose policy pays nothing, which is a correct refusal and tells us
+# nothing about the path under test. This walks it — visit, diagnosis, invoice
+# — for the copay patient whose maths the rest of this file already relies on.
+DOCTOR=$(sql "SELECT id FROM doctors WHERE organization_id = 1 ORDER BY id LIMIT 1" | tr -d '\r')
+sql "UPDATE encounters SET status='cancelled', updated_at=UTC_TIMESTAMP()
+      WHERE doctor_id = ${DOCTOR:-0} AND status = 'open'" > /dev/null
+
+R=$(api POST /encounters "{\"patient_id\":$P_COPAY,\"doctor_id\":$DOCTOR,\"chief_complaint\":\"Claim path\"}" "${OAUTH[@]}")
+VISIT=$(jnum "$(body_of "$R")" id)
+
+if [ -n "$VISIT" ]; then
+  api POST "/encounters/$VISIT/diagnoses" \
+    '{"description":"Acute tonsillitis","icd10_code":"J03.90","type":"primary"}' "${OAUTH[@]}" > /dev/null
+  api POST "/encounters/$VISIT/complete" '' "${OAUTH[@]}" > /dev/null
+
+  R=$(api POST "/encounters/$VISIT/invoice" '' "${OAUTH[@]}")
+  ENCINV=$(jnum "$(body_of "$R")" id)
+  [ -n "$ENCINV" ] && api POST "/invoices/$ENCINV/issue" '' "${OAUTH[@]}" > /dev/null
+fi
+
+if [ -n "${ENCINV:-}" ]; then
+  R=$(api POST /claims "{\"invoice_id\":$ENCINV}" "${BAUTH[@]}")
+  expect "a claim can be raised from a consultation" "$(status_of "$R")" "201" "$(body_of "$R")"
+  ENCCLAIM=$(jnum "$(body_of "$R")" id)
+
+  # The code the insurer matches on, carried from the visit onto the line.
+  CODE=$(sql "SELECT ci.diagnosis_code FROM claim_items ci
+               WHERE ci.claim_id = ${ENCCLAIM:-0} AND ci.diagnosis_code IS NOT NULL
+               LIMIT 1" | tr -d '\r')
+  [ -n "$CODE" ] && pass "the visit's ICD-10 code is on the claim ($CODE)" \
+                 || fail "no diagnosis code carried from the encounter"
+else
+  fail "could not raise a consultation and invoice it"
+fi
+
 R=$(api POST /claims "{\"invoice_id\":$INV_EXPIRED}" "${BAUTH[@]}")
 expect "cannot claim on an expired policy" "$(status_of "$R")" "409"
 

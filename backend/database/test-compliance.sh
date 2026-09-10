@@ -125,6 +125,67 @@ else
   ok "no unapproved drafts to check"
 fi
 
+step "9. The erasure answer is one the clinic can keep (GDPR Art. 17)"
+# The export tells the patient a clinical record cannot be deleted — Art.
+# 17(3) allows that — and then makes two promises in its place: the clinic can
+# correct what is wrong, and it can close the app account, with the medical
+# record staying where it is. Checking that the paragraph EXISTS is not the
+# same as checking the system can do what it says, and only the first was
+# checked. So do the second one, end to end, on an account made for it.
+STAMP=$(date +%s)
+FREEPAT=$(sql "SELECT id FROM patients
+                WHERE organization_id = 1 AND user_id IS NULL ORDER BY id DESC LIMIT 1" | tr -d '\r')
+
+if [ -n "$FREEPAT" ]; then
+  LINKED=$(curl -s -X POST "${O[@]}" -d "{\"email\":\"erasure$STAMP@test.local\"}" \
+      "$BASE/patients/$FREEPAT/account")
+  NEWUSER=$(echo "$LINKED" | grep -o '"user_id":[0-9]*' | head -1 | cut -d: -f2)
+  TEMPPW=$(echo "$LINKED" | grep -o '"temporary_password":"[^"]*"' | cut -d'"' -f4)
+
+  if [ -n "$NEWUSER" ] && [ -n "$TEMPPW" ]; then
+    TOK=$(curl -s -X POST "$BASE/auth/login" -H 'Content-Type: application/json' \
+        -d "{\"email\":\"erasure$STAMP@test.local\",\"password\":\"$TEMPPW\"}" \
+        | grep -o '"access_token":"[^"]*"' | head -1 | cut -d'"' -f4)
+    C=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" \
+        -H 'X-Organization-Id: 1' "$BASE/patient/dashboard")
+    want "the new account reaches its own record" "$C" "200"
+
+    # "Ask the clinic to close your app account."
+    curl -s -o /dev/null -X PUT "${O[@]}" -d '{"status":"disabled"}' \
+        "$BASE/organizations/current/members/$NEWUSER/status"
+
+    TOK2=$(curl -s -X POST "$BASE/auth/login" -H 'Content-Type: application/json' \
+        -d "{\"email\":\"erasure$STAMP@test.local\",\"password\":\"$TEMPPW\"}" \
+        | grep -o '"access_token":"[^"]*"' | head -1 | cut -d'"' -f4)
+    C=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${TOK2:-none}" \
+        -H 'X-Organization-Id: 1' "$BASE/patient/dashboard")
+    want "closing it shuts the door" "$C" "403"
+
+    # "...the medical record stays with the clinic." The half that makes the
+    # first half lawful: the login goes, the chart does not.
+    STILL=$(sql "SELECT status FROM patients WHERE id=$FREEPAT" | tr -d '\r')
+    want "and the chart is still there" "$STILL" "active"
+
+    # Put the seat back. `staff` usage counts every ACTIVE membership — a
+    # patient login included — so an account left behind by each run walks the
+    # clinic past its plan, and the suites that check a downgrade back to
+    # Professional start failing for a reason that is nothing to do with them.
+    # The membership goes; the chart stays, which is the point being tested.
+    curl -s -o /dev/null -X DELETE "${O[@]}" \
+        "$BASE/organizations/current/members/$NEWUSER"
+    sql "UPDATE patients SET user_id = NULL WHERE id = $FREEPAT" > /dev/null
+    sql "DELETE FROM users WHERE id = $NEWUSER" > /dev/null
+
+    LEFT=$(sql "SELECT COUNT(*) FROM organization_users
+                 WHERE organization_id = 1 AND user_id = $NEWUSER" | tr -d '\r')
+    want "and the suite gives the seat back" "$LEFT" "0"
+  else
+    bad "could not link an app account to test the promise with"
+  fi
+else
+  bad "no unlinked patient to link an account to"
+fi
+
 echo
 echo "========================================="
 echo "passed: $PASS   failed: $FAIL"
