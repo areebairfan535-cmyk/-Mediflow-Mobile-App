@@ -145,7 +145,7 @@ final class PlatformRepository extends Repository
                FROM organizations o
                JOIN countries c ON c.id = o.country_id'
             . $clause
-            . ' ORDER BY o.created_at DESC
+            . ' ORDER BY o.created_at DESC, o.id DESC
                 LIMIT ' . (int) $perPage . ' OFFSET ' . (int) (($page - 1) * $perPage),
             $bindings,
         );

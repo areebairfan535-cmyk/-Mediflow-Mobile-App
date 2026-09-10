@@ -19,8 +19,8 @@ final class TaxExclusiveRule implements TaxRule
 
         return [
             'taxable' => Money::round($net),
-            'tax'     => $tax,
-            'total'   => Money::add($net, $tax),
+            'tax'     => Money::round($tax),
+            'total'   => Money::round(Money::add($net, $tax)),
         ];
     }
 

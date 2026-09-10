@@ -907,10 +907,20 @@ PKR 4,000 service still produces an invoice for PKR 4,680.
 ### Tax behaviour is a strategy, not an `if`
 
 §23 forbids hard-coded country behaviour, so how tax applies is a class:
-`TaxExclusiveRule` (PK, AE, US — tax added on top), `TaxInclusiveRule` (GB —
-tax extracted from the listed price), `TaxExemptRule`. `TaxRules::forCountry()`
-is the only place a country code maps to behaviour. Adding a market is a line
-there plus a `countries` row — `InvoiceService` never changes.
+`TaxExclusiveRule` (tax added on top), `TaxInclusiveRule` (tax extracted from
+the listed price, as UK retail pricing works), `TaxExemptRule`.
+
+Which one a market gets is **configuration, not code**: `countries.tax_mode`
+picks the strategy and `countries.tax_label` decides whether the invoice says
+GST, VAT or Sales Tax. `TaxRules::make()` reads the row; `InvoiceService`
+never changes, and neither does PHP when a market opens.
+
+That last part was the point and it was missing. The rule used to live in a
+`match` on the country code, so `countries` held the RATE while the class held
+the RULE — and a market opened through the admin panel could be given a rate
+but not a rule. Every one of them silently got "added on top, called Tax",
+which in a VAT-inclusive market means every invoice is too high by the rate.
+Opening Ireland now is a form, not a release.
 
 ### The invoice number is allocated at issue, not at creation
 

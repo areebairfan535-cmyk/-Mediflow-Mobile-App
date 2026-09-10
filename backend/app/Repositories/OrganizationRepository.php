@@ -46,6 +46,8 @@ final class OrganizationRepository extends Repository
                     COALESCE(o.tax_rate,       c.default_tax_rate) AS tax_rate,
                     COALESCE(o.invoice_prefix, c.invoice_prefix)   AS invoice_prefix,
                     c.date_format,
+                    c.tax_mode,
+                    c.tax_label,
                     o.next_invoice_no,
                     o.status
                FROM organizations o

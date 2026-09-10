@@ -157,7 +157,13 @@ export default function PlatformConfig() {
                       <td className="strong">{c.name} <span className="mono">{c.code}</span></td>
                       <td className="mono">{c.currency_code} {c.currency_symbol}</td>
                       <td>{c.timezone}</td>
-                      <td className="mono">{(Number(c.default_tax_rate) * 100).toFixed(2)}%</td>
+                      <td className="mono">
+                        {(Number(c.default_tax_rate) * 100).toFixed(2)}% {c.tax_label}
+                        <span className="muted">
+                          {c.tax_mode === 'inclusive' ? ' (in price)'
+                            : c.tax_mode === 'exempt' ? ' (exempt)' : ''}
+                        </span>
+                      </td>
                       <td className="mono">{c.invoice_prefix}</td>
                       <td className="mono">{c.organizations}</td>
                       <td><Badge tone={c.is_active ? 'ok' : 'neutral'}>
@@ -355,6 +361,10 @@ function CountryForm({ country, onClose, onSave }) {
     date_format: country?.date_format ?? 'd/m/Y',
     // Stored as a fraction, entered as a percentage — nobody types 0.17.
     tax_percent: country ? String(Number(country.default_tax_rate) * 100) : '0',
+    // Whether that percentage is added to the price or already inside it.
+    // Getting this wrong is a silent 20% error on every invoice in the market.
+    tax_mode: country?.tax_mode ?? 'exclusive',
+    tax_label: country?.tax_label ?? 'Tax',
     invoice_prefix: country?.invoice_prefix ?? 'INV',
     is_active: country ? Boolean(country.is_active) : true,
   }))
@@ -374,6 +384,8 @@ function CountryForm({ country, onClose, onSave }) {
         timezone: form.timezone,
         date_format: form.date_format,
         default_tax_rate: Number(form.tax_percent || 0) / 100,
+        tax_mode: form.tax_mode,
+        tax_label: form.tax_label || 'Tax',
         invoice_prefix: form.invoice_prefix,
         is_active: form.is_active,
       })
@@ -416,6 +428,19 @@ function CountryForm({ country, onClose, onSave }) {
             <label>Default tax %</label>
             <input type="number" min="0" max="100" step="0.01"
                    value={form.tax_percent} onChange={set('tax_percent')} />
+          </div>
+          <div className="field" style={{ width: 170 }}>
+            <label>Tax applies</label>
+            <select value={form.tax_mode} onChange={set('tax_mode')}>
+              <option value="exclusive">Added to the price</option>
+              <option value="inclusive">Already in the price</option>
+              <option value="exempt">Not charged</option>
+            </select>
+          </div>
+          <div className="field" style={{ width: 130 }}>
+            <label>Called</label>
+            <input value={form.tax_label} onChange={set('tax_label')}
+                   placeholder="VAT" />
           </div>
           <div className="field" style={{ width: 150 }}>
             <label>Date format</label>

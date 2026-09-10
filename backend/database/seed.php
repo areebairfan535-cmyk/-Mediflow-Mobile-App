@@ -33,23 +33,32 @@ echo "Seeding MediFlow\n================\n";
 // ---------------------------------------------------------------
 echo "\n[countries]\n";
 
+// The last two columns are the tax RULE, not the rate: whether a listed price
+// already contains the tax, and what the local revenue office calls it. UK
+// retail prices include VAT; PK, AE and US quote before tax.
 $countries = [
-    ['PK', 'Pakistan',             'PKR', 'Rs',  'Asia/Karachi',   'd/m/Y', 0.1700, 'INV'],
-    ['US', 'United States',        'USD', '$',   'America/New_York', 'm/d/Y', 0.0000, 'INV'],
-    ['GB', 'United Kingdom',       'GBP', '£',   'Europe/London',  'd/m/Y', 0.2000, 'INV'],
-    ['AE', 'United Arab Emirates', 'AED', 'AED', 'Asia/Dubai',     'd/m/Y', 0.0500, 'INV'],
+    ['PK', 'Pakistan',             'PKR', 'Rs',  'Asia/Karachi',   'd/m/Y', 0.1700, 'INV', 'exclusive', 'GST'],
+    ['US', 'United States',        'USD', '$',   'America/New_York', 'm/d/Y', 0.0000, 'INV', 'exclusive', 'Sales Tax'],
+    ['GB', 'United Kingdom',       'GBP', '£',   'Europe/London',  'd/m/Y', 0.2000, 'INV', 'inclusive', 'VAT'],
+    ['AE', 'United Arab Emirates', 'AED', 'AED', 'Asia/Dubai',     'd/m/Y', 0.0500, 'INV', 'exclusive', 'VAT'],
 ];
 
-foreach ($countries as [$code, $name, $currency, $symbol, $tz, $dateFormat, $tax, $prefix]) {
+foreach ($countries as [$code, $name, $currency, $symbol, $tz, $dateFormat, $tax, $prefix, $mode, $label]) {
     Database::statement(
         'INSERT INTO countries
             (code, name, currency_code, currency_symbol, timezone, date_format,
-             default_tax_rate, invoice_prefix, is_active, created_at, updated_at)
-         VALUES (:code, :name, :cur, :sym, :tz, :df, :tax, :prefix, 1, :now, :now)
-         ON DUPLICATE KEY UPDATE name = VALUES(name), updated_at = VALUES(updated_at)',
+             default_tax_rate, tax_mode, tax_label, invoice_prefix, is_active,
+             created_at, updated_at)
+         VALUES (:code, :name, :cur, :sym, :tz, :df, :tax, :mode, :label,
+                 :prefix, 1, :now, :now)
+         ON DUPLICATE KEY UPDATE name       = VALUES(name),
+                                 tax_mode   = VALUES(tax_mode),
+                                 tax_label  = VALUES(tax_label),
+                                 updated_at = VALUES(updated_at)',
         [
             'code' => $code, 'name' => $name, 'cur' => $currency, 'sym' => $symbol,
             'tz' => $tz, 'df' => $dateFormat, 'tax' => $tax, 'prefix' => $prefix,
+            'mode' => $mode, 'label' => $label,
             'now' => now(),
         ],
     );

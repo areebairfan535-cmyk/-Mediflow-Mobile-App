@@ -71,15 +71,62 @@ echo "$OUT" | grep -q 'US=.*;\$ 1,234.50' && ok "money carries the market's mark
                                           || bad "currency symbol not applied"
 
 step "4. Tax behaviour is per market, not hard-coded"
+# This step used to prove its own opposite. It called TaxRules::forCountry,
+# which WAS the hard-coding: a match statement on the country code, holding
+# the one part of a market's configuration that `countries` did not. So a
+# market opened through the admin panel could be given a rate but not a rule,
+# and silently got "added on top, called Tax" — an invoice 20% too high in
+# any VAT-inclusive market, fixable only by editing PHP.
+#
+# The mode lives on the row now, so that is what gets asked.
+taxrule() {  # $1 country code -> "Class|label|total on 100.00"
+  "$PHP" -r '
+    require "'"$WREPO"'/backend/bootstrap/app.php";
+    use App\Services\Billing\TaxRules;
+    use App\Core\Database;
+    $c = Database::selectOne("SELECT tax_mode, tax_label, default_tax_rate
+                                FROM countries WHERE code = :c", ["c" => $argv[1]]);
+    $r = TaxRules::make($c["tax_mode"] ?? null, $c["tax_label"] ?? null, $argv[1]);
+    $o = $r->apply("100.00", (string) ($c["default_tax_rate"] ?? 0));
+    echo (new ReflectionClass($r))->getShortName(), "|", $r->label(), "|", $o["total"];
+  ' "$1" 2>/dev/null
+}
+
+want "GB reads as inclusive VAT"      "$(taxrule GB)" "TaxInclusiveRule|VAT|100.00"
+want "PK reads as exclusive GST"      "$(taxrule PK)" "TaxExclusiveRule|GST|117.00"
+want "AE reads as exclusive VAT"      "$(taxrule AE)" "TaxExclusiveRule|VAT|105.00"
+want "US names its own tax"           "$(taxrule US)" "TaxExclusiveRule|Sales Tax|100.00"
+
+# The decisive one: if this is configuration then changing the row changes
+# the arithmetic, with nothing rebuilt and no PHP touched. If it is still
+# code, GB stays inclusive however the row reads.
+sql "UPDATE countries SET tax_mode='exclusive' WHERE code='GB'" >/dev/null
+want "flipping GB's row flips its arithmetic" "$(taxrule GB)" "TaxExclusiveRule|VAT|120.00"
+sql "UPDATE countries SET tax_mode='inclusive' WHERE code='GB'" >/dev/null
+want "and putting it back restores it" "$(taxrule GB)" "TaxInclusiveRule|VAT|100.00"
+
+# A country with no row at all must still get a rule rather than an error.
 OUT=$("$PHP" -r '
 require "'"$WREPO"'/backend/bootstrap/app.php";
 use App\Services\Billing\TaxRules;
-foreach (["PK","US","GB","AE","ZZ"] as $c) {
-  echo $c . "=" . get_class(TaxRules::forCountry($c)) . "\n";
-}' 2>&1)
-echo "$OUT" | grep -q 'GB=.*TaxInclusiveRule'  && ok "GB is tax-inclusive (VAT)"  || bad "GB rule wrong"
-echo "$OUT" | grep -q 'PK=.*TaxExclusiveRule'  && ok "PK is tax-exclusive (GST)"  || bad "PK rule wrong"
-echo "$OUT" | grep -q 'ZZ=.*TaxExclusiveRule'  && ok "an unknown market still gets a rule" || bad "unknown market has no rule"
+echo get_class(TaxRules::make(null, null, "ZZ"));' 2>&1)
+echo "$OUT" | grep -q 'TaxExclusiveRule' && ok "an unconfigured market still gets a rule" \
+                                        || bad "unconfigured market has no rule" "$OUT"
+
+# All three implementations of one interface must agree on what they return,
+# or the next caller inherits whichever one it happened to get. The exclusive
+# rule used to hand back 17.000000 where the other two rounded.
+OUT=$("$PHP" -r '
+require "'"$WREPO"'/backend/bootstrap/app.php";
+use App\Services\Billing\{TaxRules};
+foreach ([["exclusive","GST"],["inclusive","VAT"],["exempt","X"]] as [$m,$l]) {
+  foreach (TaxRules::make($m,$l,null)->apply("100.00","0.17") as $v) {
+    if (!preg_match("/^-?\d+\.\d{2}$/", (string) $v)) { echo "UNROUNDED:$m:$v\n"; }
+  }
+}
+echo "checked";' 2>&1)
+echo "$OUT" | grep -q '^checked$' && ok "every tax rule returns money at two decimals" \
+                                  || bad "a tax rule returns unrounded money" "$OUT"
 
 step "5. A clinic's own setting beats its market's default"
 # `mysql -N` prints a SQL NULL as the four letters NULL, so capturing the
@@ -149,12 +196,26 @@ step "8. No compliance is claimed that has not been earned"
 grep -qi 'no compliance claim should be made' "$REPO/README.md" \
   && ok "the README says so plainly" || bad "the README does not qualify its compliance wording"
 # The words "HIPAA compliant" / "GDPR compliant" must appear nowhere.
-if grep -rniE '(HIPAA|GDPR)[- ]complian|complian[a-z]* with (HIPAA|GDPR)|fully complian' \
-     "$REPO/README.md" "$REPO/backend/app" 2>/dev/null | grep -q .; then
-  bad "something claims formal compliance"
-else
-  ok "nothing claims formal compliance"
-fi
+#
+# This used to search README.md and backend/app only — that is, the two
+# places least likely to grow a compliance badge. A claim like that gets
+# made on a screen a customer sees or in a document handed to one, so the
+# three clients and every other .md are searched too.
+CLAIM_IN=(
+  "$REPO/README.md" "$REPO/SETUP.md" "$REPO/DEPLOY-VERCEL.md" "$REPO/docs"
+  "$REPO/backend/app" "$REPO/clinic_web/src" "$REPO/admin_web/src"
+  "$REPO/patient_app/src" "$REPO/patient_app/app"
+)
+FOUND=$(grep -rniE '(HIPAA|GDPR)[- ]complian|complian[a-z]* with (HIPAA|GDPR)|fully complian|(HIPAA|GDPR)[- ]certified' \
+     "${CLAIM_IN[@]}" 2>/dev/null | grep -v node_modules || true)
+[ -z "$FOUND" ] && ok "nothing in the product or its docs claims formal compliance" \
+                || bad "something claims formal compliance" "$(printf '%s' "$FOUND" | head -3)"
+
+# And the sweep has to be looking at the real tree: if these paths were
+# wrong the check above would pass for having read nothing at all.
+SEEN=$(grep -rliE 'hipaa|gdpr' "${CLAIM_IN[@]}" 2>/dev/null | grep -v node_modules | wc -l)
+[ "${SEEN:-0}" -ge 3 ] && ok "reading $SEEN files that discuss the regulations" \
+                       || bad "the compliance sweep found almost nothing to read" "only ${SEEN:-0}"
 # But the design should still cite what it was built against.
 grep -q 'HIPAA' "$REPO/backend/app/Services/DataExportService.php" \
   && ok "and the code cites the regulation it answers" || bad "no regulation cited in the export"

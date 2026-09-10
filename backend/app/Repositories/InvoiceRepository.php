@@ -180,7 +180,7 @@ final class InvoiceRepository extends Repository
                FROM invoices i
                JOIN patients p ON p.id = i.patient_id'
             . $clause
-            . ' ORDER BY i.created_at DESC
+            . ' ORDER BY i.created_at DESC, i.id DESC
                 LIMIT ' . $perPage . ' OFFSET ' . $offset,
             $bindings,
         );

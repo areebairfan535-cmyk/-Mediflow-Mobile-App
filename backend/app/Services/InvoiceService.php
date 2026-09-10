@@ -67,7 +67,11 @@ final class InvoiceService extends Service
     {
         return new InvoiceFactory(
             $this->catalogue(),
-            TaxRules::forCountry($settings['country_code'] ?? null),
+            TaxRules::make(
+                $settings['tax_mode']     ?? null,
+                $settings['tax_label']    ?? null,
+                $settings['country_code'] ?? null,
+            ),
             isset($settings['country_id']) ? (int) $settings['country_id'] : $this->countryId($settings),
             (string) ($settings['currency_code'] ?? 'USD'),
             Money::of($settings['tax_rate'] ?? 0),

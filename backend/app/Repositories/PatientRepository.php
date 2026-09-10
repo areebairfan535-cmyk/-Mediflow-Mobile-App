@@ -71,7 +71,7 @@ final class PatientRepository extends Repository
                       WHERE e.patient_id = p.id) AS last_visit_at
                FROM patients p'
             . $clause
-            . ' ORDER BY p.created_at DESC
+            . ' ORDER BY p.created_at DESC, p.id DESC
                 LIMIT ' . $perPage . ' OFFSET ' . $offset,
             $bindings,
         );

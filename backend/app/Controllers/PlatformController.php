@@ -402,6 +402,11 @@ final class PlatformController extends Controller
             'timezone'         => 'required|string|max:64',
             'date_format'      => 'nullable|string|max:20',
             'default_tax_rate' => 'nullable|numeric|between:0,1',
+            // §23: the RULE is part of a market's configuration, not just
+            // the rate. Without these two a market opened here could only
+            // ever add tax on top and call it "Tax".
+            'tax_mode'         => 'nullable|in:exclusive,inclusive,exempt',
+            'tax_label'        => 'nullable|string|max:30',
             'invoice_prefix'   => 'nullable|string|max:16',
             'is_active'        => 'nullable|boolean',
         ]);
@@ -416,6 +421,11 @@ final class PlatformController extends Controller
             'timezone'         => $data['timezone'],
             'date_format'      => $data['date_format'] ?? 'd M Y',
             'default_tax_rate' => $data['default_tax_rate'] ?? 0,
+            // Default to the commonest arrangement rather than to nothing:
+            // most markets add tax on top, and the ones that do not now have
+            // somewhere to say so.
+            'tax_mode'         => $data['tax_mode']  ?: 'exclusive',
+            'tax_label'        => $data['tax_label'] ?: 'Tax',
             'invoice_prefix'   => $data['invoice_prefix'] ?? 'INV',
             'is_active'        => (int) ($data['is_active'] ?? 1),
         ];

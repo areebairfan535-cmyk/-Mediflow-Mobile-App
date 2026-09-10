@@ -8,7 +8,9 @@ namespace App\Models;
  *
  * §23 forbids hard-coded country behaviour, so this row IS the configuration —
  * currency, timezone, date format, tax rate and invoice prefix all resolve
- * through it wherever a clinic has not overridden them.
+ * through it wherever a clinic has not overridden them — and tax_mode says
+ * whether that rate is added on top, already inside the price, or not
+ * charged at all, which is behaviour rather than a number.
  */
 final class Country extends Model
 {
@@ -27,7 +29,8 @@ final class Country extends Model
     {
         return [
             'code', 'name', 'currency_code', 'currency_symbol', 'timezone', 'date_format',
-            'default_tax_rate', 'invoice_prefix', 'is_active', 'created_at', 'updated_at',
+            'default_tax_rate', 'tax_mode', 'tax_label',
+            'invoice_prefix', 'is_active', 'created_at', 'updated_at',
         ];
     }
 

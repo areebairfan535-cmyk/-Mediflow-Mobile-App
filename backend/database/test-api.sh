@@ -233,6 +233,30 @@ codes POST /invoices/99999/issue
 codes POST /invoices/99999/cancel
 codes GET  /invoices/99999/pdf
 
+step "10. A paged list is stable enough to page through"
+# A list ordered on created_at alone has no defined order among rows that
+# share a second, so MySQL is free to return them differently each time. On
+# a paged endpoint that is not cosmetic: a row sitting on a page boundary
+# gets shown on both pages, or on neither. /invoices did exactly this — two
+# consecutive requests returned two different lists — and it surfaced only
+# because the alias check in step 9 compared the same list twice.
+for ep in invoices claims patients prescriptions; do
+  A=$(curl -s "${O[@]}" "$BASE/$ep?page=1&per_page=10" | md5sum | cut -d' ' -f1)
+  B=$(curl -s "${O[@]}" "$BASE/$ep?page=1&per_page=10" | md5sum | cut -d' ' -f1)
+  [ "$A" = "$B" ] && ok "/$ep returns the same page twice running" \
+                  || bad "/$ep is not stable between requests"
+
+  P1=$(curl -s "${O[@]}" "$BASE/$ep?page=1&per_page=10" | grep -o '"id":[0-9]\+' | cut -d: -f2 | sort -u)
+  P2=$(curl -s "${O[@]}" "$BASE/$ep?page=2&per_page=10" | grep -o '"id":[0-9]\+' | cut -d: -f2 | sort -u)
+  if [ -z "$P1" ] || [ -z "$P2" ]; then
+    ok "/$ep has too few rows to page (nothing to prove)"
+  else
+    DUP=$(comm -12 <(printf '%s\n' "$P1") <(printf '%s\n' "$P2") | wc -l)
+    [ "$DUP" -eq 0 ] && ok "and no row appears on both page 1 and page 2" \
+                     || bad "/$ep shows $DUP row(s) on two pages at once"
+  fi
+done
+
 echo
 echo "========================================="
 echo "passed: $PASS   failed: $FAIL"

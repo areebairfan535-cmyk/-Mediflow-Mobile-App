@@ -163,7 +163,7 @@ final class PrescriptionRepository extends Repository
                JOIN patients p ON p.id = rx.patient_id
                LEFT JOIN encounters e ON e.id = rx.encounter_id
               WHERE $clause
-              ORDER BY rx.created_at DESC
+              ORDER BY rx.created_at DESC, rx.id DESC
               LIMIT " . (int) $perPage . ' OFFSET ' . (int) (($page - 1) * $perPage),
             $bindings,
         );

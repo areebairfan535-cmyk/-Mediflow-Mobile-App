@@ -187,7 +187,7 @@ final class ClaimRepository extends Repository
                     ip.policy_number,
                     DATEDIFF(CURDATE(), DATE(c.submitted_at)) AS days_pending'
             . $from . $clause
-            . ' ORDER BY c.created_at DESC
+            . ' ORDER BY c.created_at DESC, c.id DESC
                 LIMIT ' . $perPage . ' OFFSET ' . $offset,
             $bindings,
         );
