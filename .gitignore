@@ -60,3 +60,6 @@ backend/database/last-run.log
 
 # Stub push service the test suite spins up
 backend/database/.pushmock/
+
+# Route dumper the API suite writes and deletes; only survives an interrupt.
+backend/database/.routes-dump.php

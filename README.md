@@ -363,10 +363,17 @@ installed mobile apps.
 
 ### Public
 ```
+GET    /api/v1                              the endpoint groups this API offers
 GET    /health
+GET    /public/plans                        §22 opens with "choose plan", which
+GET    /public/countries                    happens before an account exists
 POST   /auth/register
+POST   /auth/claim                          attach a login to the chart a clinic
+                                            already holds (§3)
 POST   /auth/login
 POST   /auth/refresh
+POST   /auth/forgot-password                a code short enough to type off a
+POST   /auth/reset-password                 phone; the throttle is what guards it
 ```
 
 ### Authenticated (no tenant required — this is what makes onboarding work)
@@ -379,6 +386,16 @@ GET    /auth/sessions
 DELETE /auth/sessions/{id}
 GET    /me
 PUT    /me
+
+GET    /notifications                       the signed-in person's inbox (§19,
+POST   /notifications/read                  §20). One account, one inbox — a
+POST   /notifications/{id}/read             password reset belongs to no clinic,
+DELETE /notifications                       and somebody who works at two of them
+DELETE /notifications/{id}                  should not have to choose one to read
+GET    /me/devices                          where push reaches this person (§20)
+POST   /me/devices                          the app re-registers every launch,
+DELETE /me/devices/{id}                     because the OS reissues push tokens
+
 POST   /organizations                       create a clinic; caller becomes owner
 ```
 
@@ -393,6 +410,8 @@ POST   /organizations/current/members       perm: member.create
 PUT    /organizations/current/members/{userId}/role     perm: member.update
 PUT    /organizations/current/members/{userId}/status   perm: member.update
 DELETE /organizations/current/members/{userId}          perm: member.delete
+GET    /organizations/current/members/{userId}/staff    perm: member.view
+PUT    /organizations/current/members/{userId}/staff    perm: member.update
 GET    /audit-logs                          perm: audit.view
 GET    /audit-logs/patient/{patientId}      perm: audit.view
 GET    /audit-logs/{type}/{id}              perm: audit.view
@@ -405,6 +424,11 @@ POST   /patients                              perm: patient.create
 GET    /patients/{id}                         chart + allergies + conditions + visits
 PUT    /patients/{id}
 DELETE /patients/{id}                         deactivates; clinical rows are never deleted
+GET    /patients/{id}/export                  §16: the patient's own copy of
+                                              everything, produced on request
+                                              (GDPR Art. 15, HIPAA §164.524)
+POST   /patients/{id}/account                 perm: patient.update — hand this
+                                              patient an app login
 GET    /patients/{id}/allergies
 POST   /patients/{id}/allergies
 DELETE /patients/{id}/allergies/{allergyId}
@@ -443,6 +467,7 @@ POST   /encounters/{id}/notes
 POST   /encounters/{id}/lab-orders
 DELETE /encounters/{id}/{kind}/{childId}
 
+GET    /prescriptions?status=&patient_id=     who was prescribed what
 GET    /prescriptions/medications?search=     catalogue with pre-filled defaults
 POST   /prescriptions
 GET    /prescriptions/{id}
@@ -450,18 +475,88 @@ PUT    /prescriptions/{id}
 POST   /prescriptions/{id}/issue
 POST   /prescriptions/{id}/cancel
 
-GET    /lab-orders
-POST   /lab-orders/{id}/results
-GET    /documents/{id}/download
+GET    /labs/orders                           perm: lab.view
+GET    /labs/orders/{id}                      the order, with its results
+GET    /labs/results?flag=critical            result-first, so "anything abnormal
+                                              today?" is one request
+POST   /labs/orders/{id}/results              perm: lab.result
+GET    /documents/{id}/download               perm: document.view
 
-GET    /services                              perm: service.view
-POST   /services                              perm: service.manage — code is permanent
-PUT    /services/{id}                         name, category, taxable, retired
-POST   /services/{id}/prices                  supersedes; the old price is kept
+GET    /lab-orders                            the flat spelling that shipped
+POST   /lab-orders/{id}/results               first; both web apps still call it
 
 GET    /prescriptions/{id}/pdf                printable, issued only
-GET    /invoices/{id}/pdf                     printable, drafts refused
 ```
+
+### Billing & payments — Phase 3 (§6, §7, §19)
+
+§19 names `/billing` and `/payments` as separate groups, and they are kept
+separate: the catalogue, the invoices and the reports gather under `/billing`,
+while taking money is a different act with its own permissions. The flat
+spellings shipped first and the clinic web app still calls them, so both
+answer — same controller, same guard.
+
+```
+GET    /billing/services                      perm: service.view
+POST   /billing/services                      perm: service.manage — code is permanent
+PUT    /billing/services/{id}                 name, category, taxable, retired
+POST   /billing/services/{id}/prices          supersedes; the old price is kept
+
+GET    /billing/invoices                      perm: invoice.view
+POST   /billing/invoices                      perm: invoice.create
+GET    /billing/invoices/{id}                 lines, payments and refunds
+PUT    /billing/invoices/{id}                 perm: invoice.update — drafts only
+POST   /billing/invoices/{id}/issue           perm: invoice.issue — now it is owed
+POST   /billing/invoices/{id}/cancel          perm: invoice.cancel
+GET    /billing/invoices/{id}/pdf             printable, drafts refused
+
+GET    /billing/reports/financial             perm: report.view
+GET    /billing/reports/receivables           perm: report.view — aged buckets
+
+POST   /encounters/{id}/invoice               §27: consultation → draft invoice
+POST   /invoices/mark-overdue                 perm: invoice.update — the sweep
+
+GET    /payments                              perm: payment.view
+GET    /payments/{id}                         a receipt is a lookup, not a search
+POST   /invoices/{id}/payments                perm: payment.create — take money
+
+POST   /payments/{id}/refunds                 perm: refund.create — ask
+GET    /refunds/pending                       perm: refund.approve — the queue
+POST   /refunds/{id}/approve                  perm: refund.approve
+POST   /refunds/{id}/reject                   perm: refund.approve
+```
+
+`/services`, `/invoices` and `/reports/*` answer identically without the
+`/billing` prefix.
+
+### Insurance & claims — Phase 5 (§8, §19)
+
+```
+GET    /insurance/providers                   perm: policy.view
+POST   /insurance/providers                   perm: policy.manage
+GET    /patients/{patientId}/policies         perm: policy.view
+POST   /patients/{patientId}/policies         perm: policy.manage
+PUT    /insurance/policies/{id}               perm: policy.manage
+
+GET    /invoices/{id}/eligibility             what cover would pay on this bill
+POST   /insurance/check                       the same question, for an amount
+
+GET    /claims                                perm: claim.view
+GET    /claims/pipeline                       the board, counted by status
+POST   /claims                                perm: claim.create
+GET    /claims/{id}                           its history, and what it replaces
+DELETE /claims/{id}                           drafts only
+POST   /claims/{id}/submit                    perm: claim.submit
+POST   /claims/{id}/processing                perm: claim.update — acknowledged
+POST   /claims/{id}/decision                  perm: claim.update — approved or
+                                              rejected, with the amount allowed
+POST   /claims/{id}/paid                      perm: claim.update — settled
+POST   /claims/{id}/resubmit                  perm: claim.submit — a NEW claim,
+                                              linked back to the rejected one
+```
+
+Rejecting a claim releases the cover it was holding, which is why the annual
+ceiling in `/insurance/check` moves when a decision lands.
 
 ### The patient app (§3) — scoped by identity, not by permission
 
@@ -476,21 +571,36 @@ PUT    /patient/profile                       own details + contact; NOT blood
                                               group, allergies or insurance
 
 GET    /patient/doctors?search=                book with whom
+GET    /patient/doctors/filters                specialties and clinics to
+                                               narrow that search by
 GET    /patient/doctors/{id}/slots?date=        the clinic's own free slots
+GET    /patient/appointments                   what is booked, past and future
 POST   /patient/appointments                   book
 POST   /patient/appointments/{id}/reschedule   move
 POST   /patient/appointments/{id}/cancel
 
 GET    /patient/records                        visits + diagnoses, procedures
                                               and approved notes
-GET    /patient/prescriptions | /lab-results | /documents
+GET    /patient/prescriptions
+GET    /patient/lab-results
+GET    /patient/documents
 GET    /patient/documents/{id}/download        released reports only
 GET    /patient/prescriptions/{id}/pdf
-GET    /patient/bills | /invoices/{id}
+GET    /patient/bills
+GET    /patient/invoices/{id}
 GET    /patient/invoices/{id}/pdf
 
+POST   /patient/invoices/{id}/pay               §7: start an online payment. The
+GET    /patient/payments/status                 amount is read off the invoice,
+POST   /patient/payments/confirm                never sent by the client
+
+GET    /patient/export                          §16 again, self-service: the
+                                                same copy, asked for by the
+                                                person it is about
+
 GET    /patient/notifications
-POST   /patient/notifications/read | /{id}/read
+POST   /patient/notifications/read
+POST   /patient/notifications/{id}/read
 DELETE /patient/notifications                  clear (all=true for the lot)
 DELETE /patient/notifications/{id}
 ```
@@ -547,6 +657,10 @@ PUT    /platform/plans/{id}                   name, prices and limits; slug is i
 GET    /platform/countries                    §23 market config
 POST   /platform/countries                    open a market — a row, not a release
 PUT    /platform/countries/{id}                currency, timezone, tax, invoice prefix
+
+GET    /platform/settings                     §21: the deployment's own config,
+PUT    /platform/settings                     including which payment gateway is
+                                              live. Secrets are not here.
 
 GET    /platform/audit-logs                   the cross-tenant trail (§16)
 ```
