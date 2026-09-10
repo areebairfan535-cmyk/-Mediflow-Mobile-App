@@ -267,10 +267,12 @@ final class BillingController extends Controller
         }
 
         $id      = $request->intParam('id');
-        $invoice = InvoiceService::for($request)->updateDraft($id, $data);
+        $result  = InvoiceService::for($request)->updateDraft($id, $data);
+        $invoice = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'invoice', $id, null,
+            $request, 'update', 'invoice', $id,
+            ['grand_total' => $result['before']['grand_total']],
             ['grand_total' => $invoice['grand_total']], (int) $invoice['patient_id'],
         );
 
@@ -282,11 +284,14 @@ final class BillingController extends Controller
         $data = $this->validate($request, ['due_date' => 'nullable|date']);
 
         $id      = $request->intParam('id');
-        $invoice = InvoiceService::for($request)->issue($id, $data['due_date'] ?? null);
+        $result  = InvoiceService::for($request)->issue($id, $data['due_date'] ?? null);
+        $invoice = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'invoice', $id, null,
-            ['status' => 'issued', 'invoice_no' => $invoice['invoice_no']],
+            $request, 'update', 'invoice', $id,
+            ['status' => $result['before']['status'], 'grand_total' => $result['before']['grand_total']],
+            ['status' => 'issued', 'invoice_no' => $invoice['invoice_no'],
+             'grand_total' => $invoice['grand_total']],
             (int) $invoice['patient_id'],
         );
 
@@ -298,10 +303,13 @@ final class BillingController extends Controller
         $data = $this->validate($request, ['reason' => 'required|string|max:500']);
 
         $id      = $request->intParam('id');
-        $invoice = InvoiceService::for($request)->cancel($id, (string) $data['reason']);
+        $result  = InvoiceService::for($request)->cancel($id, (string) $data['reason']);
+        $invoice = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'invoice', $id, null,
+            $request, 'update', 'invoice', $id,
+            ['status' => $result['before']['status'],
+             'invoice_no' => $result['before']['invoice_no']],
             ['status' => 'cancelled', 'reason' => $data['reason']],
             (int) $invoice['patient_id'],
         );
@@ -399,7 +407,8 @@ final class BillingController extends Controller
         $result = PaymentService::for($request)->approveRefund($request->intParam('id'));
 
         (new AuditService())->log(
-            $request, 'update', 'refund', $request->intParam('id'), null,
+            $request, 'update', 'refund', $request->intParam('id'),
+            ['status' => 'pending'],
             ['status' => 'completed', 'amount' => $result['refund']['amount']],
         );
 
@@ -414,7 +423,8 @@ final class BillingController extends Controller
             ->rejectRefund($request->intParam('id'), $data['reason'] ?? null);
 
         (new AuditService())->log(
-            $request, 'update', 'refund', $request->intParam('id'), null, ['status' => 'rejected'],
+            $request, 'update', 'refund', $request->intParam('id'),
+            ['status' => 'pending'], ['status' => 'rejected'],
         );
 
         $this->ok(['refund' => $refund]);

@@ -99,10 +99,12 @@ final class EncounterController extends Controller
         $data = $this->validate($request, ['followup_on' => 'nullable|date']);
 
         $id        = $request->intParam('id');
-        $completed = EncounterService::for($request)->complete($id, $data['followup_on'] ?? null);
+        $result    = EncounterService::for($request)->complete($id, $data['followup_on'] ?? null);
+        $completed = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'encounter', $id, null,
+            $request, 'update', 'encounter', $id,
+            ['status' => $result['before']['status']],
             ['status' => 'completed'], (int) $completed['patient_id'],
         );
 
@@ -114,10 +116,12 @@ final class EncounterController extends Controller
         $data = $this->validate($request, ['reason' => 'nullable|string|max:500']);
 
         $id        = $request->intParam('id');
-        $cancelled = EncounterService::for($request)->cancel($id, $data['reason'] ?? null);
+        $result    = EncounterService::for($request)->cancel($id, $data['reason'] ?? null);
+        $cancelled = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'encounter', $id, null,
+            $request, 'update', 'encounter', $id,
+            ['status' => $result['before']['status']],
             ['status' => 'cancelled'], (int) $cancelled['patient_id'],
         );
 

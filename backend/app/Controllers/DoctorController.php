@@ -163,9 +163,13 @@ final class DoctorController extends Controller
         $repo = $this->repo($request);
         $repo->findOrFail($id, 'Doctor');
 
-        $saved = $repo->replaceSchedule($id, $slots);
+        $before = $repo->schedule($id);
+        $saved  = $repo->replaceSchedule($id, $slots);
 
-        (new AuditService())->log($request, 'update', 'doctor_schedule', $id, null, ['slots' => count($slots)]);
+        (new AuditService())->log(
+            $request, 'update', 'doctor_schedule', $id,
+            ['slots' => count($before)], ['slots' => count($slots)],
+        );
 
         $this->ok(['schedule' => $saved]);
     }

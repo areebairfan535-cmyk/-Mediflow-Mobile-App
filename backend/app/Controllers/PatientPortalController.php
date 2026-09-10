@@ -50,10 +50,13 @@ final class PatientPortalController extends Controller
             'emergency_relation' => 'nullable|string|max:60',
         ]);
 
-        $patient = PatientPortalService::for($request)->updateProfile($data);
+        $result  = PatientPortalService::for($request)->updateProfile($data);
+        $patient = $result['after'];
 
-        (new AuditService())->log(
-            $request, 'update', 'patient', (int) $patient['id'], null, $data, (int) $patient['id'],
+        // Only the fields that actually moved, and what they moved from.
+        (new AuditService())->logUpdate(
+            $request, 'patient', (int) $patient['id'],
+            $result['before'], array_intersect_key($patient, $data), (int) $patient['id'],
         );
 
         $this->ok(['patient' => $patient]);
@@ -186,11 +189,13 @@ final class PatientPortalController extends Controller
     {
         $data = $this->validate($request, ['reason' => 'nullable|string|max:500']);
 
-        $appointment = PatientPortalService::for($request)
+        $result      = PatientPortalService::for($request)
             ->cancelAppointment($request->intParam('id'), $data['reason'] ?? null);
+        $appointment = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'appointment', $request->intParam('id'), null,
+            $request, 'update', 'appointment', $request->intParam('id'),
+            ['status' => $result['before']['status']],
             ['status' => 'cancelled', 'by' => 'patient'], (int) $appointment['patient_id'],
         );
 

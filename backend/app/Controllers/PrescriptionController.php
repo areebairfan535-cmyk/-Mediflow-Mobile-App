@@ -133,7 +133,8 @@ final class PrescriptionController extends Controller
         $result = PrescriptionService::for($request)->update($id, $data);
 
         (new AuditService())->log(
-            $request, 'update', 'prescription', $id, null,
+            $request, 'update', 'prescription', $id,
+            ['items' => count($result['before']['items'] ?? [])],
             ['items' => count($result['prescription']['items'])],
             (int) $result['prescription']['patient_id'],
         );
@@ -144,10 +145,12 @@ final class PrescriptionController extends Controller
     public function issue(Request $request): never
     {
         $id           = $request->intParam('id');
-        $prescription = PrescriptionService::for($request)->issue($id);
+        $result       = PrescriptionService::for($request)->issue($id);
+        $prescription = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'prescription', $id, null,
+            $request, 'update', 'prescription', $id,
+            ['status' => $result['before']['status']],
             ['status' => 'issued'], (int) $prescription['patient_id'],
         );
 
@@ -157,10 +160,12 @@ final class PrescriptionController extends Controller
     public function cancel(Request $request): never
     {
         $id           = $request->intParam('id');
-        $prescription = PrescriptionService::for($request)->cancel($id);
+        $result       = PrescriptionService::for($request)->cancel($id);
+        $prescription = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'prescription', $id, null,
+            $request, 'update', 'prescription', $id,
+            ['status' => $result['before']['status']],
             ['status' => 'cancelled'], (int) $prescription['patient_id'],
         );
 

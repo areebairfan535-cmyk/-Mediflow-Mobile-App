@@ -59,6 +59,24 @@ sql "SELECT new_values FROM audit_logs WHERE action='update' AND resource_type='
      ORDER BY id DESC LIMIT 1" | grep -qF "$NAME" && ok "and the new value is the one sent" \
   || bad "the new value was not recorded"
 
+# Above this line only the patient path was ever checked, and it was one of
+# the few that already worked. Twenty-two other call sites passed null where
+# the old value belongs — a changed invoice total, every claim decision, every
+# refund — so the trail said what a figure BECAME and never what it had been.
+# One row is a poor way to police that: it only ever asks about the last thing
+# that happened. The rule covers every place that writes an update, so it is
+# read off the source instead.
+NULLOLD=$(cd "$BACKEND" && grep -rn -A3 "AuditService())->log(" app/Controllers/*.php 2>/dev/null \
+  | grep "'update'" | grep -c "null")
+want "no update is written without the value it replaced" "${NULLOLD:-x}" "0"
+
+# And the grep must be able to find those calls at all, or the check above is
+# green for having read nothing.
+CALLS=$(cd "$BACKEND" && grep -rc "AuditService())->log(" app/Controllers/*.php 2>/dev/null \
+  | awk -F: '{n+=$2} END {print n+0}')
+[ "${CALLS:-0}" -gt 30 ] && ok "reading $CALLS audit calls to say so" \
+                         || bad "found almost no audit calls" "only ${CALLS:-0}"
+
 step "4. Failed and blocked sign-ins are recorded, not just successes"
 for a in login_failed login; do
   N=$(sql "SELECT COUNT(*) FROM audit_logs WHERE action='$a'")
@@ -110,12 +128,37 @@ want "a SQL payload in a filter is refused" "$C" "422"
 N=$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB' AND table_name='patients'")
 want "and patients still exists" "$N" "1"
 # Stored text comes back as data, never as executable markup.
+#
+# This used to call ok() on both branches — stored, escaped or silently
+# dropped, it passed either way — and then searched the response BODY for a
+# content-type header it had never fetched, so that passed always too. The
+# one control §26 names by name was the one thing not actually checked.
+#
+# A JSON API resists stored XSS on three conditions, so all three are asked:
+# the value survives untouched, the response is JSON rather than HTML, and
+# the browser is told not to guess. Escaping on the way in is NOT wanted —
+# a patient in "St. John's" would have their address mangled forever.
 XSS='<script>alert(1)</script>'
-curl -s -o /dev/null -X PUT "${O[@]}" -d "{\"city\":\"$XSS\"}" "$BASE/patients/1"
-BODY=$(curl -s "${O[@]}" "$BASE/patients/1")
-echo "$BODY" | grep -q '"city":"<script>' && ok "markup is stored and returned as text" \
-                                          || ok "markup was rejected or escaped"
-echo "$BODY" | grep -qi 'content-type: text/html' && bad "served as HTML" || ok "and never as HTML"
+C=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "${O[@]}" \
+      -d "{\"city\":\"$XSS\"}" "$BASE/patients/1")
+want "markup can be stored, like any other text" "$C" "200"
+
+HDR="/tmp/mf-xss-hdr.$$"
+BODY=$(curl -s -D "$HDR" "${O[@]}" "$BASE/patients/1")
+if echo "$BODY" | grep -qF "\"city\":\"$XSS\""; then
+  ok "and comes back exactly as it went in"
+else
+  bad "the stored value was altered" "$(echo "$BODY" | grep -o '"city":"[^"]*"')"
+fi
+# Were this ever text/html, that same string would run in a browser.
+grep -qi '^content-type: application/json' "$HDR" \
+  && ok "served as JSON, not as HTML" \
+  || bad "the record is not served as JSON" "$(grep -i '^content-type' "$HDR" | tr -d '\r')"
+grep -qi '^x-content-type-options: nosniff' "$HDR" \
+  && ok "with nosniff, so the browser will not guess" \
+  || bad "no nosniff on the record response"
+rm -f "$HDR"
+
 curl -s -o /dev/null -X PUT "${O[@]}" -d '{"city":"Karachi"}' "$BASE/patients/1"
 
 step "10. Uploaded files are not reachable without going through the API"

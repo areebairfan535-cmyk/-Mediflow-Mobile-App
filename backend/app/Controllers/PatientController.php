@@ -127,9 +127,13 @@ final class PatientController extends Controller
     public function destroy(Request $request): never
     {
         $id      = $request->intParam('id');
-        $patient = PatientService::for($request)->deactivate($id);
+        $result  = PatientService::for($request)->deactivate($id);
+        $patient = $result['after'];
 
-        (new AuditService())->log($request, 'update', 'patient', $id, null, ['status' => 'inactive'], $id);
+        (new AuditService())->log(
+            $request, 'update', 'patient', $id,
+            ['status' => $result['before']['status']], ['status' => 'inactive'], $id,
+        );
 
         $this->ok(['patient' => $patient]);
     }

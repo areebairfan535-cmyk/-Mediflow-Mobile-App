@@ -237,11 +237,13 @@ final class InsuranceController extends Controller
             'external_claim_no' => 'nullable|string|max:120',
         ]);
 
-        $claim = ClaimService::for($request)
+        $result = ClaimService::for($request)
             ->submit($request->intParam('id'), $data['external_claim_no'] ?? null);
+        $claim  = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'claim', (int) $claim['id'], null,
+            $request, 'update', 'claim', (int) $claim['id'],
+            ['status' => $result['before']['status']],
             ['status' => 'submitted', 'claimed' => $claim['claimed_amount']],
             (int) $claim['patient_id'],
         );
@@ -251,7 +253,17 @@ final class InsuranceController extends Controller
 
     public function processingClaim(Request $request): never
     {
-        $this->ok(['claim' => ClaimService::for($request)->markProcessing($request->intParam('id'))]);
+        $result = ClaimService::for($request)->markProcessing($request->intParam('id'));
+        $claim  = $result['after'];
+
+        (new AuditService())->log(
+            $request, 'update', 'claim', (int) $claim['id'],
+            ['status' => $result['before']['status']],
+            ['status' => 'processing'],
+            (int) $claim['patient_id'],
+        );
+
+        $this->ok(['claim' => $claim]);
     }
 
     public function decideClaim(Request $request): never
@@ -266,10 +278,15 @@ final class InsuranceController extends Controller
             $data['line_decisions'] = $request->body['line_decisions'];
         }
 
-        $claim = ClaimService::for($request)->recordDecision($request->intParam('id'), $data);
+        $result = ClaimService::for($request)->recordDecision($request->intParam('id'), $data);
+        $claim  = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'claim', (int) $claim['id'], null,
+            $request, 'update', 'claim', (int) $claim['id'],
+            [
+                'status'   => $result['before']['status'],
+                'approved' => $result['before']['approved_amount'],
+            ],
             [
                 'status'   => $claim['status'],
                 'approved' => $claim['approved_amount'],
@@ -288,14 +305,17 @@ final class InsuranceController extends Controller
             'reference' => 'nullable|string|max:191',
         ]);
 
-        $claim = ClaimService::for($request)->markPaid(
+        $result = ClaimService::for($request)->markPaid(
             $request->intParam('id'),
             isset($data['amount']) ? (string) $data['amount'] : null,
             $data['reference'] ?? null,
         );
+        $claim  = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'claim', (int) $claim['id'], null,
+            $request, 'update', 'claim', (int) $claim['id'],
+            ['status' => $result['before']['status'],
+             'paid'   => $result['before']['paid_amount']],
             ['status' => 'paid', 'paid' => $claim['paid_amount']],
             (int) $claim['patient_id'],
         );

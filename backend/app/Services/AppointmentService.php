@@ -286,7 +286,7 @@ final class AppointmentService extends Service
                 'cancelled_reason' => $reason ?? 'Rescheduled',
             ]));
 
-            return $repo->create($this->stampCreate([
+            return ['before' => $appointment, 'after' => $repo->create($this->stampCreate([
                 'patient_id'       => (int) $appointment['patient_id'],
                 'doctor_id'        => (int) $appointment['doctor_id'],
                 'scheduled_at'     => $startsAt,
@@ -296,7 +296,7 @@ final class AppointmentService extends Service
                 'reason'           => $appointment['reason'],
                 'rescheduled_from' => $id,
                 'booked_by'        => $this->actorId,
-            ]));
+            ]))];
         });
     }
 

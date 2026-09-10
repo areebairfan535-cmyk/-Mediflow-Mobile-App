@@ -108,7 +108,8 @@ final class ClinicalController extends Controller
         $repo->recordLabResults($orderId, (int) $order['patient_id'], $results, $request->userId());
 
         (new AuditService())->log(
-            $request, 'update', 'lab_order', $orderId, null,
+            $request, 'update', 'lab_order', $orderId,
+            ['status' => $order['status']],
             ['status' => 'completed', 'results' => count($results)],
             (int) $order['patient_id'],
         );

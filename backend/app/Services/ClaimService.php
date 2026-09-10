@@ -247,7 +247,7 @@ final class ClaimService extends Service
                 (string) $claim['claimed_amount'],
             );
 
-            return $this->show($id);
+            return ['before' => $claim, 'after' => $this->show($id)];
         });
     }
 
@@ -258,7 +258,7 @@ final class ClaimService extends Service
 
         $this->claims()->update($id, $this->stampUpdate(['status' => 'processing']));
 
-        return $this->show($id);
+        return ['before' => $claim, 'after' => $this->show($id)];
     }
 
     /**
@@ -345,7 +345,7 @@ final class ClaimService extends Service
 
             $this->notifyPatient($claim, $status);
 
-            return $this->show($id);
+            return ['before' => $claim, 'after' => $this->show($id)];
         });
     }
 
@@ -390,7 +390,7 @@ final class ClaimService extends Service
                 ],
             );
 
-            return $this->show($id);
+            return ['before' => $claim, 'after' => $this->show($id)];
         });
     }
 

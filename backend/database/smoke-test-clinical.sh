@@ -429,6 +429,25 @@ DENC=$("$MYSQL" -u root "$DB" -N -e "SELECT e.id FROM encounters e
 DPAT=$("$MYSQL" -u root "$DB" -N -e "SELECT patient_id FROM encounters
    WHERE id = ${DENC:-0}" 2>/dev/null)
 
+# Every run of this section bills one of this doctor's visits, so the supply
+# is finite — and it ran out. What that looked like was not a failing tile but
+# a missing fixture: the section reported "no visit" and tested nothing, which
+# is the quietest way for a check to stop checking. So it makes its own when
+# the well is dry. The patient has to be one with no open consultation, since
+# a second open visit for the same person is refused by design.
+if [ -z "$DENC" ]; then
+  FRESHPAT=$("$MYSQL" -u root "$DB" -N -e "SELECT p.id FROM patients p
+       WHERE p.organization_id = 1
+         AND NOT EXISTS (SELECT 1 FROM encounters e
+                          WHERE e.patient_id = p.id AND e.status = 'open')
+       ORDER BY p.id DESC LIMIT 1" 2>/dev/null | tr -d '')
+  if [ -n "$FRESHPAT" ]; then
+    R=$(api POST /encounters "{\"patient_id\":$FRESHPAT,\"doctor_id\":$DASHDOC}" "${AUTH[@]}")
+    DENC=$(jnum "$(body_of "$R")" id)
+    DPAT=$FRESHPAT
+  fi
+fi
+
 # The first service the catalogue has a price for; a draft needs a priced line.
 PRICED=$(printf '%s' "$(body_of "$(api GET /services '' "${OAUTH[@]}")")" \
   | grep -o '"id":[0-9]*,[^}]*"price":"[1-9][0-9.]*"' | head -1 | grep -o '^"id":[0-9]*' | sed 's/.*://')

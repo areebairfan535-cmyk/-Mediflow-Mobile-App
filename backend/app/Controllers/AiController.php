@@ -59,7 +59,8 @@ final class AiController extends Controller
 
         // The approval is the auditable act — who took responsibility for it.
         (new AuditService())->log(
-            $request, 'update', 'clinical_note', (int) $note['id'], null,
+            $request, 'update', 'clinical_note', (int) $note['id'],
+            ['approved' => false],
             ['approved' => true, 'edited' => isset($data['body'])],
             (int) $note['patient_id'],
         );
@@ -132,8 +133,10 @@ final class AiController extends Controller
     {
         $result = AiAssistantService::for($request)->reviewClaim($request->intParam('id'));
 
+        // Reviewing a claim reads it and changes nothing, so it is a view.
+        // Filing it as an update put a change in the trail that never happened.
         (new AuditService())->log(
-            $request, 'update', 'claim', $request->intParam('id'), null,
+            $request, 'view', 'claim', $request->intParam('id'), null,
             ['ai_risk_score' => $result['risk_score']],
         );
 

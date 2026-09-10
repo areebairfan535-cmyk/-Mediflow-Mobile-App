@@ -205,7 +205,7 @@ final class EncounterService extends Service
                 }
             }
 
-            return $completed;
+            return ['before' => $encounter, 'after' => $completed];
         });
     }
 
@@ -230,7 +230,7 @@ final class EncounterService extends Service
                 }
             }
 
-            return $cancelled;
+            return ['before' => $encounter, 'after' => $cancelled];
         });
     }
 

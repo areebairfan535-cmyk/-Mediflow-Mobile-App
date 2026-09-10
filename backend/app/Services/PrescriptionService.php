@@ -137,7 +137,11 @@ final class PrescriptionService extends Service
             }
         });
 
-        return ['prescription' => $this->show($id), 'warnings' => $warnings];
+        return [
+            'prescription' => $this->show($id),
+            'warnings'     => $warnings,
+            'before'       => $prescription,
+        ];
     }
 
     /** Issue: the point the prescription becomes the patient's document. */
@@ -179,7 +183,7 @@ final class PrescriptionService extends Service
             error_log('[notify] prescription notification failed: ' . $e->getMessage());
         }
 
-        return $this->show($id);
+        return ['before' => $prescription, 'after' => $this->show($id)];
     }
 
     /**
@@ -222,11 +226,11 @@ final class PrescriptionService extends Service
 
     public function cancel(int $id): array
     {
-        $repo = $this->prescriptions();
-        $repo->findOrFail($id, 'Prescription');
+        $repo         = $this->prescriptions();
+        $prescription = $repo->findOrFail($id, 'Prescription');
         $repo->update($id, ['status' => 'cancelled', 'updated_by' => $this->actorId]);
 
-        return $this->show($id);
+        return ['before' => $prescription, 'after' => $this->show($id)];
     }
 
     /** @return list<array<string,mixed>> */

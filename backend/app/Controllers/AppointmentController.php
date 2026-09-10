@@ -67,15 +67,18 @@ final class AppointmentController extends Controller
 
         $id = $request->intParam('id');
 
-        $moved = AppointmentService::for($request)->reschedule(
+        $result = AppointmentService::for($request)->reschedule(
             $id,
             (string) $data['scheduled_at'],
             isset($data['duration_minutes']) ? (int) $data['duration_minutes'] : null,
             $data['reason'] ?? null,
         );
+        $moved = $result['after'];
 
         (new AuditService())->log(
-            $request, 'update', 'appointment', $id, null,
+            $request, 'update', 'appointment', $id,
+            ['status'       => $result['before']['status'],
+             'scheduled_at' => $result['before']['scheduled_at']],
             ['rescheduled_to' => $moved['id'], 'scheduled_at' => $moved['scheduled_at']],
             (int) $moved['patient_id'],
         );

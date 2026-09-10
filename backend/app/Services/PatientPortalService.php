@@ -178,13 +178,15 @@ final class PatientPortalService extends Service
             'emergency_name', 'emergency_phone', 'emergency_relation',
         ]);
 
+        $before = $this->profile();
+
         if ($allowed === []) {
-            return $this->profile();
+            return ['before' => $before, 'after' => $before];
         }
 
         $this->patients()->update($this->meId(), $allowed + ['updated_by' => $this->actorId]);
 
-        return $this->profile();
+        return ['before' => $before, 'after' => $this->profile()];
     }
 
     /** @return list<array<string,mixed>> */
@@ -350,7 +352,7 @@ final class PatientPortalService extends Service
         // Delegate to the same service the clinic uses, so the legal-transition
         // rules apply identically no matter who cancels.
         return (new AppointmentService($this->organizationId, $this->actorId))
-            ->changeStatus($appointmentId, 'cancelled', $reason ?? 'Cancelled by patient')['after'];
+            ->changeStatus($appointmentId, 'cancelled', $reason ?? 'Cancelled by patient');
     }
 
     /**

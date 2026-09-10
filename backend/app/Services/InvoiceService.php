@@ -299,7 +299,7 @@ final class InvoiceService extends Service
             $patch['patient_payable'] = $built['totals']['grand_total'];
         }
 
-        return $this->transaction(function () use ($id, $patch, $built): array {
+        return $this->transaction(function () use ($id, $patch, $built, $invoice): array {
             if ($patch !== []) {
                 $this->invoices()->update($id, $this->stampUpdate($patch));
             }
@@ -311,7 +311,7 @@ final class InvoiceService extends Service
                 );
             }
 
-            return $this->show($id);
+            return ['before' => $invoice, 'after' => $this->show($id)];
         });
     }
 
@@ -373,7 +373,7 @@ final class InvoiceService extends Service
                 error_log('[notify] invoice notification failed: ' . $e->getMessage());
             }
 
-            return $issued;
+            return ['before' => $invoice, 'after' => $issued];
         });
     }
 
@@ -401,7 +401,7 @@ final class InvoiceService extends Service
             'cancelled_reason' => $reason,
         ]));
 
-        return $this->show($id);
+        return ['before' => $invoice, 'after' => $this->show($id)];
     }
 
     /**

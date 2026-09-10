@@ -87,12 +87,15 @@ final class PatientService extends Service
 
     public function deactivate(int $id): array
     {
-        $repo = $this->patients();
-        $repo->findOrFail($id, 'Patient');
+        $repo    = $this->patients();
+        $patient = $repo->findOrFail($id, 'Patient');
 
         // Clinical records are never deleted — the row is marked inactive so
         // its history stays intact and auditable (§16).
-        return $repo->update($id, $this->stampUpdate(['status' => 'inactive']));
+        return [
+            'before' => $patient,
+            'after'  => $repo->update($id, $this->stampUpdate(['status' => 'inactive'])),
+        ];
     }
 
     // ---- allergies & conditions ----
