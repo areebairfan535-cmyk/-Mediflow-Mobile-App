@@ -1,8 +1,49 @@
 import { Platform } from 'react-native'
 import * as Device from 'expo-device'
-import * as Notifications from 'expo-notifications'
 import Constants from 'expo-constants'
 import { api } from './api'
+
+/**
+ * expo-notifications is loaded lazily, and that is the whole point.
+ *
+ * Expo Go dropped remote push in SDK 53, and the module now throws the moment
+ * it is imported there. A static `import` at the top of this file therefore
+ * took the entire app down on launch — the login screen imports this module,
+ * so the crash happened before anything could be drawn, and every careful
+ * try/catch below never got the chance to run. The protection was all on the
+ * runtime path; the failure was on the load path.
+ *
+ * Requiring it here means an unavailable module is a fact this file can
+ * handle rather than an error that ends the process: push is off, the in-app
+ * inbox still has everything, and the patient can use the app. That is the
+ * same rule the server already follows for an unconfigured channel — skipped,
+ * not failed.
+ */
+let notificationsModule = null
+let notificationsChecked = false
+
+function notifications() {
+  if (notificationsChecked) return notificationsModule
+  notificationsChecked = true
+  try {
+    notificationsModule = require('expo-notifications')
+  } catch (error) {
+    notificationsModule = null
+    // console.log, not console.warn: in Expo Go this is expected, permanent,
+    // and nothing anybody can act on, so LogBox should not throw a banner
+    // over the app on every launch. A warning is for something that might be
+    // wrong. This is just how Expo Go is since SDK 53.
+    console.log(
+      '[push] remote notifications are unavailable here (Expo Go) — the in-app inbox still works.',
+    )
+  }
+  return notificationsModule
+}
+
+/** Whether this build can be reached by a push at all. */
+export function pushAvailable() {
+  return notifications() !== null
+}
 
 /**
  * Getting notifications out of the app and onto the phone (§20).
@@ -25,14 +66,19 @@ import { api } from './api'
 // How a notification behaves when it arrives while the app is open. Showing
 // it is the point: the patient should see "your prescription is ready" land
 // whether or not they happen to be on the notifications screen.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-})
+{
+  const N = notifications()
+  if (N) {
+    N.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    })
+  }
+}
 
 /** A name the person would recognise in a list of their own devices. */
 function deviceName() {
@@ -52,25 +98,30 @@ function deviceName() {
  */
 export async function registerForPush() {
   try {
+    // Expo Go since SDK 53, and the web build, have no remote push to offer.
+    // Nothing is wrong — there is simply nowhere to send one.
+    const N = notifications()
+    if (!N) return false
+
     // A simulator has no push token to give. Not a failure worth showing.
     if (!Device.isDevice) return false
 
     // Android needs a channel before anything will make a sound.
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
+      await N.setNotificationChannelAsync('default', {
         name: 'Appointments and results',
-        importance: Notifications.AndroidImportance.DEFAULT,
+        importance: N.AndroidImportance.DEFAULT,
         sound: 'default',
       })
     }
 
-    const existing = await Notifications.getPermissionsAsync()
+    const existing = await N.getPermissionsAsync()
     let status = existing.status
 
     // Only ask if we have not been told already. Asking again after a refusal
     // is how an app gets its notifications turned off in system settings.
     if (status !== 'granted') {
-      const asked = await Notifications.requestPermissionsAsync()
+      const asked = await N.requestPermissionsAsync()
       status = asked.status
     }
     if (status !== 'granted') return false
@@ -79,7 +130,7 @@ export async function registerForPush() {
     const projectId =
       Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId
 
-    const { data: token } = await Notifications.getExpoPushTokenAsync(
+    const { data: token } = await N.getExpoPushTokenAsync(
       projectId ? { projectId } : undefined,
     )
     if (!token) return false
@@ -112,7 +163,12 @@ export async function registerForPush() {
  * @returns {() => void} call to stop listening
  */
 export function onNotificationTap(onOpen) {
-  const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+  const N = notifications()
+  // No push here means no taps to hear. Hand back a no-op unsubscribe so the
+  // caller's cleanup works exactly the same either way.
+  if (!N) return () => {}
+
+  const sub = N.addNotificationResponseReceivedListener((response) => {
     const data = response?.notification?.request?.content?.data ?? {}
     onOpen({
       type: data.subject_type ?? null,
