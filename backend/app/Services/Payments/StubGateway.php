@@ -57,9 +57,17 @@ final class StubGateway implements PaymentGateway
 
         $base = rtrim((string) env('APP_URL', 'http://localhost:8000'), '/');
 
+        // The checkout page needs to know where "Approve" goes, the same way
+        // PayPal is told a return_url when the order is created.
+        $query = http_build_query([
+            'reference' => $reference,
+            'return'    => $context['return_url'] ?? '',
+            'cancel'    => $context['cancel_url'] ?? '',
+        ]);
+
         return [
             'reference'    => $reference,
-            'approval_url' => $base . '/payment/stub?reference=' . urlencode($reference),
+            'approval_url' => $base . '/payment/stub?' . $query,
         ];
     }
 

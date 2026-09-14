@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
+import * as Linking from 'expo-linking'
 import { api } from '../../src/api'
 import {
   Badge, Card, EmptyState, ErrorBox, Loading, SectionTitle, c, s, dateOnly, money,
@@ -81,10 +82,15 @@ export default function Bills() {
     if (paying) return
     setPaying(invoice.id)
     try {
-      const started = await api.startPayment(invoice.id)
+      // The address this app answers on: exp://… inside Expo Go, mediflow://…
+      // in a store build. Sent to the server so the gateway's "return to app"
+      // lands here and not on a scheme this build does not own.
+      const returnUrl = Linking.createURL('payment/return')
+
+      const started = await api.startPayment(invoice.id, returnUrl)
       const { approval_url: url, reference } = started.data
 
-      await WebBrowser.openAuthSessionAsync(url, 'mediflow://payment/return')
+      await WebBrowser.openAuthSessionAsync(url, returnUrl)
 
       try {
         const done = await api.confirmPayment(reference)

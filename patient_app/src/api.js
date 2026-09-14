@@ -231,8 +231,11 @@ export const api = {
   // should not be offered one that can only fail.
   paymentStatus: () => request('/patient/payments/status'),
   // No amount is sent — the server reads it off the invoice.
-  startPayment: (invoiceId) =>
-    request(`/patient/invoices/${invoiceId}/pay`, { method: 'POST' }),
+  startPayment: (invoiceId, returnUrl) =>
+    request(`/patient/invoices/${invoiceId}/pay`, {
+      method: 'POST',
+      body: returnUrl ? { return_url: returnUrl } : {},
+    }),
   confirmPayment: (reference) =>
     request('/patient/payments/confirm', { method: 'POST', body: { reference } }),
 

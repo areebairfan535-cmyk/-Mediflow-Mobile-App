@@ -38,6 +38,10 @@ use App\Controllers\SubscriptionController;
 
 /** @var \App\Core\Router $router */
 
+// The stub gateway's checkout page. Outside /api/v1 because it is a page a
+// browser lands on, not an API call, and the gateway has always pointed here.
+$router->get('/payment/stub', [PublicController::class, 'stubCheckout']);
+
 $router->group('/api/v1', [], function ($router): void {
 
     // ---------------- Public ----------------

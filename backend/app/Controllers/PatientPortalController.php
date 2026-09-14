@@ -283,7 +283,14 @@ final class PatientPortalController extends Controller
      */
     public function startPayment(Request $request): never
     {
-        $started = PatientPortalService::for($request)->startPayment($request->intParam('id'));
+        $data = $this->validate($request, [
+            'return_url' => 'nullable|string|max:500',
+        ]);
+
+        $started = PatientPortalService::for($request)->startPayment(
+            $request->intParam('id'),
+            isset($data['return_url']) ? (string) $data['return_url'] : null,
+        );
 
         (new AuditService())->log(
             $request, 'create', 'payment_intent', $request->intParam('id'), null,

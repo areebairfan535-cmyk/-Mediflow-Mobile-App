@@ -489,7 +489,7 @@ final class PatientPortalService extends Service
      *
      * @return array<string,mixed>
      */
-    public function startPayment(int $invoiceId): array
+    public function startPayment(int $invoiceId, ?string $returnUrl = null): array
     {
         $invoice = $this->invoice($invoiceId);
         $gateway = PaymentGateways::resolve();
@@ -507,6 +507,16 @@ final class PatientPortalService extends Service
         $appUrl = rtrim((string) env('APP_URL', 'http://localhost:8000'), '/');
         $return = (string) env('PAYMENT_RETURN_URL', $appUrl . '/payment/return');
         $cancel = (string) env('PAYMENT_CANCEL_URL', $appUrl . '/payment/cancel');
+
+        // The app knows its own address better than the server does: inside
+        // Expo Go it is exp://<host>/--/…, in a store build mediflow://…, and
+        // a return to the wrong one leaves the payer on a blank browser tab.
+        // Only app-style schemes are accepted, so the gateway cannot be turned
+        // into a redirect to an arbitrary website.
+        if ($returnUrl !== null && preg_match('~^(mediflow|exp|exps)://~i', $returnUrl) === 1) {
+            $return = $returnUrl;
+            $cancel = preg_replace('~/return$~', '/cancel', $returnUrl) ?? $cancel;
+        }
 
         $started = $gateway->createPayment($balance, (string) $invoice['currency_code'], [
             'invoice_id'  => (string) $invoice['id'],
