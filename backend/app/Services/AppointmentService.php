@@ -206,11 +206,21 @@ final class AppointmentService extends Service
         ]));
 
         $this->notify($appointment, 'appointment.booked');
+        $this->queueReminder($appointment);
 
-        // §20 lists an appointment reminder as its own event. Queue it now,
-        // scheduled for the day before — the dispatcher sends what is due.
-        $reminderAt = (new \DateTimeImmutable($startsAt, new \DateTimeZone('UTC')))
-            ->modify('-1 day');
+        return $appointment;
+    }
+
+    /**
+     * §20 lists an appointment reminder as its own event. Queue it now,
+     * scheduled for the day before — the dispatcher sends what is due.
+     */
+    private function queueReminder(array $appointment): void
+    {
+        $reminderAt = (new \DateTimeImmutable(
+            (string) $appointment['scheduled_at'],
+            new \DateTimeZone('UTC'),
+        ))->modify('-1 day');
 
         if ($reminderAt->getTimestamp() > time()) {
             $this->notify(
@@ -219,8 +229,6 @@ final class AppointmentService extends Service
                 ['scheduled_for' => $reminderAt->format('Y-m-d H:i:s')],
             );
         }
-
-        return $appointment;
     }
 
     /**
@@ -280,7 +288,7 @@ final class AppointmentService extends Service
         $duration = $minutes ?? (int) $appointment['duration_minutes'];
         $this->assertBookable((int) $appointment['doctor_id'], $startsAt, $duration, $id);
 
-        return $this->transaction(function () use ($repo, $appointment, $id, $startsAt, $duration, $reason): array {
+        $result = $this->transaction(function () use ($repo, $appointment, $id, $startsAt, $duration, $reason): array {
             $repo->update($id, $this->stampUpdate([
                 'status'           => 'cancelled',
                 'cancelled_reason' => $reason ?? 'Rescheduled',
@@ -298,6 +306,16 @@ final class AppointmentService extends Service
                 'booked_by'        => $this->actorId,
             ]))];
         });
+
+        // The patient is told once, about the move — not "cancelled" and then
+        // "confirmed", which is two alarms for one decision. The reminder that
+        // was waiting for the old slot is withdrawn, or the day before the old
+        // date they would be told to turn up to a visit that no longer exists.
+        (new \App\Repositories\NotificationRepository())->withdrawReminders('appointment', $id);
+        $this->notify($result['after'], 'appointment.rescheduled');
+        $this->queueReminder($result['after']);
+
+        return $result;
     }
 
     /** @return array{before: array<string,mixed>, after: array<string,mixed>} */

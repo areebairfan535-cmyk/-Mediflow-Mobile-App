@@ -9,6 +9,7 @@ const ICON = {
   'appointment.booked': '📅',
   'appointment.reminder': '⏰',
   'appointment.cancelled': '❌',
+  'appointment.rescheduled': '🔁',
   'prescription.issued': '💊',
   'invoice.issued': '🧾',
   'payment.received': '✅',

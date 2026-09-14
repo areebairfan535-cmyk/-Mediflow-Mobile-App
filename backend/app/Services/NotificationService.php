@@ -52,6 +52,15 @@ final class NotificationService extends Service
             'body'     => 'Your appointment on %s was cancelled. %s',
             'keys'     => ['when', 'reason'],
         ],
+        // A move is one event, not a cancellation followed by a booking: two
+        // messages for one decision read as two decisions, and the first of
+        // them ("cancelled") is alarming on its own.
+        'appointment.rescheduled' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Appointment moved',
+            'body'     => 'Your appointment with %s is now on %s.',
+            'keys'     => ['doctor', 'when'],
+        ],
         'prescription.issued' => [
             'channels' => ['in_app', 'push'],
             'title'    => 'Prescription ready',

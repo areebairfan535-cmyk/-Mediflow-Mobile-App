@@ -153,6 +153,27 @@ final class NotificationRepository extends Repository
         return Database::statement($sql, $args);
     }
 
+    /**
+     * Drop the reminders still waiting for an appointment that no longer
+     * happens at that time.
+     *
+     * Only rows not yet sent go: a reminder the patient already received is
+     * a fact, not a plan, and stays in the inbox. Every channel is covered,
+     * because a stale SMS is the one they would actually act on.
+     *
+     * @return int rows removed
+     */
+    public function withdrawReminders(string $subjectType, int $subjectId): int
+    {
+        return Database::statement(
+            'DELETE FROM notifications
+              WHERE subject_type = :type AND subject_id = :id
+                AND event = \'appointment.reminder\'
+                AND status = \'queued\' AND sent_at IS NULL',
+            ['type' => $subjectType, 'id' => $subjectId],
+        );
+    }
+
     // ---------------------------------------------------------------
     // Delivery worker
     // ---------------------------------------------------------------
