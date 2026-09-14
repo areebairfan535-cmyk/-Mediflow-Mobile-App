@@ -77,13 +77,93 @@ final class AuthService
 
         $this->audit->logAuth($request, 'register', (int) $user['id']);
 
+        $organizations = $this->openChartFor((int) $user['id'], $user);
+
         $tokens = $this->tokens->issuePair((int) $user['id'], null, $this->deviceContext($request));
 
         return [
             'user'          => $this->publicUser($user),
-            'organizations' => [],
+            'organizations' => $organizations,
             'auth'          => $tokens,
         ];
+    }
+
+    /**
+     * Give a self-registered account a chart of its own.
+     *
+     * Registering used to make a login and nothing else, which left the person
+     * staring at "your record is not attached yet" until a receptionist did the
+     * linking by hand. Someone who signs up with their own email and their own
+     * password has said who they are, so the record is opened for them here and
+     * the app opens on their own empty chart instead of a dead end.
+     *
+     * It is deliberately forgiving: if anything below fails the account still
+     * exists and still signs in, and the pending screen — which has not gone
+     * anywhere — explains what is missing. A half-made chart is worth less than
+     * a login that works.
+     *
+     * @param array<string,mixed> $user the row just created
+     * @return list<array<string,mixed>> memberships, as /me reports them
+     */
+    private function openChartFor(int $userId, array $user): array
+    {
+        try {
+            // The clinic a self-registration lands in. One tenant is the normal
+            // case; where there are several, the oldest is the one this build
+            // was set up around.
+            $org = Database::selectOne('SELECT id FROM organizations ORDER BY id LIMIT 1');
+            if ($org === null) {
+                return [];
+            }
+            $orgId = (int) $org['id'];
+
+            $role = (new RoleRepository())->findSystemRole('patient');
+            if ($role === null) {
+                return [];
+            }
+
+            $rbac = new RbacService();
+            if ($rbac->membership($userId, $orgId) === null) {
+                $rbac->addMember($orgId, $userId, (int) $role['id'], 'Patient');
+            }
+
+            // MRNs are per-organization and allocated the same way the front
+            // desk allocates them, so a self-registered chart is indistinguishable
+            // from one the receptionist typed in.
+            $seq = Database::selectOne(
+                'SELECT COALESCE(MAX(CAST(SUBSTRING(mrn, 3) AS UNSIGNED)), 0) AS n
+                   FROM patients
+                  WHERE organization_id = :org AND mrn REGEXP \'^P-[0-9]+$\'',
+                ['org' => $orgId],
+            );
+
+            // "Ayesha Siddiqui" splits once: everything after the first space is
+            // the surname, which keeps double-barrelled names intact.
+            $parts = preg_split('/\s+/', trim((string) $user['name']), 2) ?: [];
+
+            Database::statement(
+                'INSERT INTO patients
+                    (organization_id, user_id, mrn, first_name, last_name,
+                     phone, email, status, created_at, updated_at)
+                 VALUES (:org, :uid, :mrn, :first, :last, :phone, :email, \'active\', :now, :now)',
+                [
+                    'org'   => $orgId,
+                    'uid'   => $userId,
+                    'mrn'   => sprintf('P-%06d', ((int) ($seq['n'] ?? 0)) + 1),
+                    'first' => $parts[0] ?? (string) $user['name'],
+                    'last'  => $parts[1] ?? '',
+                    'phone' => $user['phone'] ?? null,
+                    'email' => $user['email'],
+                    'now'   => now(),
+                ],
+            );
+
+            return $rbac->membershipsFor($userId);
+        } catch (\Throwable) {
+            // The account is already saved and the tokens are about to be
+            // issued; the app falls back to the pending screen.
+            return [];
+        }
     }
 
     /**
