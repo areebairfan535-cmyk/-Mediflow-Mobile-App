@@ -47,7 +47,7 @@ export default function TabsLayout() {
         // a header that changes colour as you move between tabs reads as a bug.
         headerStyle: { backgroundColor: c.accentDark },
         headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: '700', color: '#fff' },
+        headerTitleStyle: { fontWeight: '700', color: '#fff', fontSize: 20 },
         headerShadowVisible: false,
       }}
     >

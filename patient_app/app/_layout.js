@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { c } from '../src/ui'
+import { AppHeader } from '../src/AppHeader'
 
 export default function RootLayout() {
   return (
@@ -16,7 +17,12 @@ export default function RootLayout() {
         screenOptions={{
           headerStyle: { backgroundColor: c.accentDark },
           headerTintColor: '#fff',
-          headerTitleStyle: { fontWeight: '700', color: '#fff' },
+          // Our own header rather than Android's toolbar. The native one is
+          // 56dp and ignores headerStyle.height — native stack supports
+          // backgroundColor there and nothing else — so the blue bar on a
+          // pushed screen could not be made to match the tabs. AppHeader
+          // draws it at 54 and keeps the back arrow, title and headerRight.
+          header: (props) => <AppHeader {...props} />,
           headerShadowVisible: false,
           contentStyle: { backgroundColor: c.bg },
         }}
