@@ -36,8 +36,20 @@ echo
 echo "[1] An invoice going overdue tells the patient"
 
 INV=$(sql "SELECT id FROM invoices WHERE patient_id=$PID AND status IN ('issued','partially_paid') ORDER BY id LIMIT 1")
+
+# Every other suite makes what it needs rather than asking to be re-seeded,
+# and this one has to as well: the MVP run pays the issued invoices off and
+# mark-overdue moves the rest, so after a full pass there is nothing left in
+# this state and the suite used to stop dead. Issue a draft one instead.
 if [ -z "$INV" ]; then
-  echo "  no issued invoice — run database/seed_billing.php"; exit 1
+  DRAFT=$(sql "SELECT id FROM invoices WHERE patient_id=$PID AND status='draft' ORDER BY id DESC LIMIT 1")
+  if [ -n "$DRAFT" ]; then
+    curl -s -X POST "${O[@]}" "$BASE/invoices/$DRAFT/issue" -d '{}' >/dev/null
+    INV=$(sql "SELECT id FROM invoices WHERE id=$DRAFT AND status IN ('issued','partially_paid')")
+  fi
+fi
+if [ -z "$INV" ]; then
+  echo "  no invoice to issue — run database/seed_billing.php"; exit 1
 fi
 sql "UPDATE invoices SET due_date = DATE_SUB(CURDATE(), INTERVAL 3 DAY) WHERE id=$INV"
 BEFORE=$(sql "SELECT COUNT(*) FROM notifications WHERE user_id=$PUSER AND event='invoice.overdue'")
