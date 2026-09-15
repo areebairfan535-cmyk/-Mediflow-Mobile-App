@@ -168,7 +168,21 @@ export default function Book() {
               ) : doctors.rows.map((d) => (
                 <Pressable key={d.id} onPress={() => setDoctor(d)}>
                   <Card>
-                    <Text style={s.itemName}>{d.doctor_name}</Text>
+                    <View style={s.spread}>
+                      <Text style={[s.itemName, { flex: 1 }]}>{d.doctor_name}</Text>
+                      {Number(d.is_online) === 1 && (
+                        <View style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 5,
+                          backgroundColor: '#e6f4ea', borderRadius: 999,
+                          paddingVertical: 3, paddingHorizontal: 9,
+                        }}>
+                          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#1e7d40' }} />
+                          <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#1e7d40' }}>
+                            Online now
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={s.muted}>
                       {d.specialty}
                       {d.location ? ` · ${d.location}` : ''}

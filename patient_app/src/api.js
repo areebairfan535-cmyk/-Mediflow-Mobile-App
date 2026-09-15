@@ -290,13 +290,15 @@ export const api = {
     request(`/patient/appointments/${id}/cancel`, { method: 'POST', body: { reason } }),
 
   // ---- booking, from the patient's own app (§3) ----
+  // Everyone who takes bookings, not only who is online this minute: the
+  // screen books days ahead, and a doctor at lunch is still a doctor you can
+  // see on Thursday. The server sorts the online ones first and marks them.
   bookableDoctors: (search, specialty, location) => {
-    const q = new URLSearchParams()
+    const q = new URLSearchParams({ online: '0' })
     if (search) q.set('search', search)
     if (specialty) q.set('specialty', specialty)
     if (location) q.set('location', location)
-    const query = q.toString()
-    return request(`/patient/doctors${query ? `?${query}` : ''}`)
+    return request(`/patient/doctors?${q.toString()}`)
   },
   // The specialties and locations this clinic actually has doctors in, so a
   // filter can never offer a choice that comes back empty.
