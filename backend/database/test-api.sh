@@ -130,7 +130,8 @@ $router->registerAliases([
 ]);
 require $b . '/routes/api.php';
 foreach ($router->routeTable() as $r) {
-    $p = substr($r['path'], strlen('/api/v1'));
+    // Only the stub checkout page lives outside the prefix; it is listed as-is.
+    $p = str_starts_with($r['path'], '/api/v1') ? substr($r['path'], strlen('/api/v1')) : $r['path'];
     echo $r['method'], ' ', ($p === '' ? '/api/v1' : $p), "\n";
 }
 PHPDUMP

@@ -80,6 +80,14 @@ function resolveApiBase() {
 
 export const API_BASE = resolveApiBase()
 
+/**
+ * The clinic this build of the app belongs to. Signing up names it, and the
+ * server opens the new patient's chart there — without it a new account is a
+ * login attached to nothing. Set EXPO_PUBLIC_CLINIC to the clinic's slug when
+ * building for a real clinic; the demo clinic is the default.
+ */
+export const CLINIC_SLUG = (process.env.EXPO_PUBLIC_CLINIC || 'demo-clinic').trim()
+
 export class ApiError extends Error {
   constructor(message, status, code, fields) {
     super(message)
@@ -189,8 +197,14 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // A brand-new patient. The clinic slug is what turns the account into a
+  // chart; see CLINIC_SLUG.
   register: (name, email, password) =>
-    request('/auth/register', { method: 'POST', body: { name, email, password }, withAuth: false }),
+    request('/auth/register', {
+      method: 'POST',
+      body: { name, email, password, clinic: CLINIC_SLUG },
+      withAuth: false,
+    }),
   // Attaches a login to the chart the clinic already holds. The patient ID and
   // date of birth are what prove it is their chart.
   claimChart: (mrn, date_of_birth, name, email, password) =>

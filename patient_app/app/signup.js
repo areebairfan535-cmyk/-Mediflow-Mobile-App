@@ -9,23 +9,29 @@ import { c, s, ErrorBox } from '../src/ui'
 import { useKeyboardInset } from '../src/authui'
 
 /**
- * Attaching a login to a chart the clinic already holds (§3).
+ * Two ways in, on one screen.
  *
- * This form does not create a medical record — the clinic did that when the
- * patient first walked in. It finds that record and puts a password on it.
+ * New patient — name, email, password. The clinic this app was built for
+ * opens a chart for them, so they land in the tabs on their own empty record
+ * rather than on a "not attached yet" dead end.
  *
- * Which is why it asks for the patient ID and the date of birth. The ID is
- * printed on the patient's own prescriptions and invoices, so it is theirs to
- * read off; asking for the date of birth as well means a stranger who guessed
- * an ID still cannot open somebody else's history. Nothing else medical is
- * collected here.
+ * Already a patient — the clinic made the record when they first walked in,
+ * and this puts a password on it (§3). It asks for the patient ID and the
+ * date of birth: the ID is printed on their own prescriptions and invoices,
+ * so it is theirs to read off, and the date of birth means a stranger who
+ * guessed an ID still cannot open somebody else's history.
  *
- * A successful claim comes back with the clinic attached, so it goes straight
- * into the tabs on the tokens it already has. If the details do not match, the
- * screen says how to get the account made the other way — at the front desk.
+ * Both come back with the clinic attached, so both go straight into the tabs
+ * on the tokens they already have. Being sent to the login screen to type
+ * the same password again is a step that earns nothing.
  */
 export default function SignUp() {
   const router = useRouter()
+
+  // 'new' is the default because most people arriving here have never been
+  // to the clinic; the ones with a patient ID know they have one.
+  const [mode, setMode] = useState('new')
+  const claiming = mode === 'claim'
 
   const [mrn, setMrn] = useState('')
   const [dob, setDob] = useState('')
@@ -47,23 +53,24 @@ export default function SignUp() {
   // The server is the authority on the date; this only stops the obvious
   // typo reaching it as a 422.
   const badDate = dob !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(dob.trim())
-  const ready =
-    mrn.trim() !== '' && !badDate && dob.trim() !== '' &&
-    email.trim() !== '' && password.length >= 8 && confirm === password
+  const account = email.trim() !== '' && password.length >= 8 && confirm === password
+  const ready = claiming
+    ? account && mrn.trim() !== '' && dob.trim() !== '' && !badDate
+    : account && name.trim().length >= 2
 
   async function submit() {
     if (!ready || busy) return
     setBusy(true)
     setError(null)
     try {
-      const res = await api.claimChart(
-        mrn.trim(), dob.trim(), name.trim() || undefined, email.trim(), password,
-      )
+      const res = claiming
+        ? await api.claimChart(
+            mrn.trim(), dob.trim(), name.trim() || undefined, email.trim(), password,
+          )
+        : await api.register(name.trim(), email.trim(), password)
       const orgs = res.data.organizations || []
 
-      // The claim attached the clinic, so the tokens that came back are worth
-      // keeping: signing up and then being sent to the login screen to type
-      // the same password again is a step that earns nothing.
+      // The clinic is attached, so the tokens that came back are worth keeping.
       if (orgs.length > 0) {
         await auth.save(res.data.auth)
         await auth.saveOrg(orgs[0].organization_id)
@@ -71,8 +78,9 @@ export default function SignUp() {
         return
       }
 
-      // Should not happen — a claim that succeeds has a clinic by definition.
-      // If it ever does, tokens would only let the tabs fail.
+      // The account exists but no chart was opened — the server could not
+      // find this build's clinic. Tokens would only let the tabs fail, so the
+      // screen explains the other way in instead.
       await auth.clear()
       setDone(email.trim())
     } catch (err) {
@@ -162,42 +170,76 @@ export default function SignUp() {
           shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 20,
           shadowOffset: { width: 0, height: 10 }, elevation: 8,
         }}>
-          {/* No heading: the button at the foot already says what this is, and
-              saying it twice on one short form only pushed the fields down. */}
+          {/* Two tabs instead of a heading: which one is lit says what the
+              form below will do, and the rest of the form reads the same. */}
+          <View style={{
+            flexDirection: 'row', backgroundColor: c.bg, borderRadius: 12,
+            padding: 4, marginBottom: 14,
+          }}>
+            {[['new', 'New patient'], ['claim', 'Already a patient']].map(([key, label]) => {
+              const on = mode === key
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => { setMode(key); setError(null) }}
+                  style={{
+                    flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center',
+                    backgroundColor: on ? c.surface : 'transparent',
+                    shadowColor: '#000', shadowOpacity: on ? 0.08 : 0, shadowRadius: 6,
+                    shadowOffset: { width: 0, height: 2 }, elevation: on ? 2 : 0,
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 13.5, fontWeight: '700',
+                    color: on ? c.accentDark : c.muted,
+                  }}>
+                    {label}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
+
           <Text style={[s.muted, { marginBottom: 8 }]}>
-            Your clinic already has your record. This puts a password on it.
+            {claiming
+              ? 'Your clinic already has your record. This puts a password on it.'
+              : 'A few details and your record is opened. Nothing medical is asked here.'}
           </Text>
 
           <ErrorBox error={error} />
 
-          <Text style={s.label}>Patient ID</Text>
-          <TextInput
-            style={s.input}
-            value={mrn}
-            onChangeText={setMrn}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            placeholder="On your prescription or invoice"
-            placeholderTextColor={c.muted}
-            returnKeyType="next"
-          />
+          {claiming && (
+            <>
+              <Text style={s.label}>Patient ID</Text>
+              <TextInput
+                style={s.input}
+                value={mrn}
+                onChangeText={setMrn}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                placeholder="On your prescription or invoice"
+                placeholderTextColor={c.muted}
+                returnKeyType="next"
+              />
 
-          <Text style={s.label}>Date of birth</Text>
-          <TextInput
-            style={[s.input, badDate && { borderColor: c.danger }]}
-            value={dob}
-            onChangeText={setDob}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="numbers-and-punctuation"
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={c.muted}
-            returnKeyType="next"
-          />
-          {badDate && (
-            <Text style={{ color: c.danger, fontSize: 12.5, marginTop: 4 }}>
-              Write it as YYYY-MM-DD, for example 1994-03-21.
-            </Text>
+              <Text style={s.label}>Date of birth</Text>
+              <TextInput
+                style={[s.input, badDate && { borderColor: c.danger }]}
+                value={dob}
+                onChangeText={setDob}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="numbers-and-punctuation"
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={c.muted}
+                returnKeyType="next"
+              />
+              {badDate && (
+                <Text style={{ color: c.danger, fontSize: 12.5, marginTop: 4 }}>
+                  Write it as YYYY-MM-DD, for example 1994-03-21.
+                </Text>
+              )}
+            </>
           )}
 
           <Text style={s.label}>Full name</Text>
@@ -206,7 +248,7 @@ export default function SignUp() {
             value={name}
             onChangeText={setName}
             autoCapitalize="words"
-            placeholder="As the clinic has it (optional)"
+            placeholder={claiming ? 'As the clinic has it (optional)' : 'Your full name'}
             placeholderTextColor={c.muted}
             returnKeyType="next"
           />
@@ -294,8 +336,9 @@ export default function SignUp() {
 
         <View style={{ marginTop: 20, alignItems: 'center', paddingHorizontal: 10 }}>
           <Text style={{ color: '#bcd9e8', fontSize: 12.5, textAlign: 'center', lineHeight: 19 }}>
-            Cannot find your patient ID? The front desk can set the account up
-            for you instead.
+            {claiming
+              ? 'Cannot find your patient ID? Sign up as a new patient instead — the clinic can merge the records later.'
+              : 'Been to the clinic before? Switch to "Already a patient" and your history comes with you.'}
           </Text>
         </View>
       </ScrollView>

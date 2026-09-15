@@ -408,7 +408,8 @@ Schema notes that matter:
 ## API — implemented endpoints
 
 All under `/api/v1` (§14). Versioned so a v2 can ship without breaking
-installed mobile apps.
+installed mobile apps. The one exception, `/payment/stub`, is a page a
+browser lands on rather than an API call, and is listed with the rest.
 
 ### Public
 ```
@@ -416,7 +417,10 @@ GET    /api/v1                              the endpoint groups this API offers
 GET    /health
 GET    /public/plans                        §22 opens with "choose plan", which
 GET    /public/countries                    happens before an account exists
-POST   /auth/register
+GET    /payment/stub                        the stub gateway's checkout page
+                                            (PAYMENT_GATEWAY=stub only)
+POST   /auth/register                       clinic? — a single-clinic app names
+                                            its clinic and gets a chart there
 POST   /auth/claim                          attach a login to the chart a clinic
                                             already holds (§3)
 POST   /auth/login

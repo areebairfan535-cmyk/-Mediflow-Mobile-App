@@ -11,6 +11,7 @@ use App\Core\UnauthorizedException;
 use App\Core\ValidationException;
 use App\Repositories\OrganizationRepository;
 use App\Repositories\PasswordResetRepository;
+use App\Repositories\PatientRepository;
 use App\Repositories\RoleRepository;
 use App\Repositories\UserRepository;
 
@@ -46,7 +47,12 @@ final class AuthService
      * are invited by an org owner. Registration therefore never grants
      * membership anywhere, which is what keeps tenancy safe by default.
      *
-     * @param array<string,mixed> $data validated: name, email, password, phone?
+     * The one exception is opt-in and named: a patient app built for a single
+     * clinic sends that clinic's slug, and the chart is opened there (see
+     * openChartFor). Without the slug nothing is granted, so an API caller
+     * who never heard of the field gets exactly the behaviour above.
+     *
+     * @param array<string,mixed> $data validated: name, email, password, phone?, clinic?
      * @return array<string,mixed>
      */
     public function register(Request $request, array $data): array
@@ -77,7 +83,8 @@ final class AuthService
 
         $this->audit->logAuth($request, 'register', (int) $user['id']);
 
-        $organizations = $this->openChartFor((int) $user['id'], $user);
+        $clinic        = trim((string) ($data['clinic'] ?? ''));
+        $organizations = $clinic === '' ? [] : $this->openChartFor((int) $user['id'], $user, $clinic);
 
         $tokens = $this->tokens->issuePair((int) $user['id'], null, $this->deviceContext($request));
 
@@ -89,13 +96,19 @@ final class AuthService
     }
 
     /**
-     * Give a self-registered account a chart of its own.
+     * Give a self-registered account a chart of its own, in the clinic the app
+     * was built for.
      *
      * Registering used to make a login and nothing else, which left the person
      * staring at "your record is not attached yet" until a receptionist did the
      * linking by hand. Someone who signs up with their own email and their own
      * password has said who they are, so the record is opened for them here and
      * the app opens on their own empty chart instead of a dead end.
+     *
+     * The clinic comes from the caller, never from a guess: the patient app is
+     * configured with one slug and sends it. An unknown slug opens nothing,
+     * which is also what keeps this from being a way into somebody else's
+     * tenant — you cannot be granted a membership you did not name.
      *
      * It is deliberately forgiving: if anything below fails the account still
      * exists and still signs in, and the pending screen — which has not gone
@@ -105,13 +118,10 @@ final class AuthService
      * @param array<string,mixed> $user the row just created
      * @return list<array<string,mixed>> memberships, as /me reports them
      */
-    private function openChartFor(int $userId, array $user): array
+    private function openChartFor(int $userId, array $user, string $clinicSlug): array
     {
         try {
-            // The clinic a self-registration lands in. One tenant is the normal
-            // case; where there are several, the oldest is the one this build
-            // was set up around.
-            $org = Database::selectOne('SELECT id FROM organizations ORDER BY id LIMIT 1');
+            $org = (new OrganizationRepository())->findBySlug($clinicSlug);
             if ($org === null) {
                 return [];
             }
@@ -127,36 +137,25 @@ final class AuthService
                 $rbac->addMember($orgId, $userId, (int) $role['id'], 'Patient');
             }
 
-            // MRNs are per-organization and allocated the same way the front
-            // desk allocates them, so a self-registered chart is indistinguishable
-            // from one the receptionist typed in.
-            $seq = Database::selectOne(
-                'SELECT COALESCE(MAX(CAST(SUBSTRING(mrn, 3) AS UNSIGNED)), 0) AS n
-                   FROM patients
-                  WHERE organization_id = :org AND mrn REGEXP \'^P-[0-9]+$\'',
-                ['org' => $orgId],
-            );
-
             // "Ayesha Siddiqui" splits once: everything after the first space is
             // the surname, which keeps double-barrelled names intact.
             $parts = preg_split('/\s+/', trim((string) $user['name']), 2) ?: [];
 
-            Database::statement(
-                'INSERT INTO patients
-                    (organization_id, user_id, mrn, first_name, last_name,
-                     phone, email, status, created_at, updated_at)
-                 VALUES (:org, :uid, :mrn, :first, :last, :phone, :email, \'active\', :now, :now)',
-                [
-                    'org'   => $orgId,
-                    'uid'   => $userId,
-                    'mrn'   => sprintf('P-%06d', ((int) ($seq['n'] ?? 0)) + 1),
-                    'first' => $parts[0] ?? (string) $user['name'],
-                    'last'  => $parts[1] ?? '',
-                    'phone' => $user['phone'] ?? null,
-                    'email' => $user['email'],
-                    'now'   => now(),
-                ],
-            );
+            // The MRN is allocated the same way the front desk allocates one,
+            // so a self-registered chart is indistinguishable from one the
+            // receptionist typed in.
+            $patients = (new PatientRepository())->forOrganization($orgId);
+            $patients->create([
+                'user_id'    => $userId,
+                'mrn'        => $patients->nextMrn(),
+                'first_name' => $parts[0] ?? (string) $user['name'],
+                'last_name'  => $parts[1] ?? '',
+                'phone'      => $user['phone'] ?? null,
+                'email'      => $user['email'],
+                'status'     => 'active',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
             return $rbac->membershipsFor($userId);
         } catch (\Throwable) {

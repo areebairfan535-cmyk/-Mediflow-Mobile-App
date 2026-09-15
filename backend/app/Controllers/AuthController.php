@@ -34,6 +34,9 @@ final class AuthController extends Controller
             'password' => 'required|string|min:8|max:255',
             'phone'    => 'nullable|string|max:32',
             'locale'   => 'nullable|string|max:10',
+            // The clinic a single-clinic patient app was built for. Sent, it
+            // opens a chart there; absent, registration grants nothing.
+            'clinic'   => 'nullable|string|max:64',
         ]);
 
         $this->created((new AuthService())->register($request, $data));
