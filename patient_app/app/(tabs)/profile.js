@@ -111,9 +111,19 @@ export default function Profile() {
 
   if (state.loading) return <Loading />
   if (state.error) {
+    // The chart failing to load must not take the way out with it — this is
+    // the only tab that has one, and a stale login is the likeliest cause.
     return (
       <ScrollView style={s.screen} contentContainerStyle={s.content}>
         <ErrorBox error={state.error} />
+        <Pressable onPress={load} style={[s.btn, { backgroundColor: c.accentDark, marginTop: 16 }]}>
+          <Text style={s.btnText}>Try again</Text>
+        </Pressable>
+        <Pressable onPress={signOut} style={[s.btnGhost, { marginTop: 10 }]}>
+          <Text style={[s.btnGhostText, { color: c.accentDark, fontWeight: '700' }]}>
+            Sign out
+          </Text>
+        </Pressable>
       </ScrollView>
     )
   }
