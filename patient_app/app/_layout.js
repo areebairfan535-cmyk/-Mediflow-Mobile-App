@@ -1,9 +1,18 @@
-import { Stack } from 'expo-router'
+import { useEffect } from 'react'
+import { Stack, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { c } from '../src/ui'
 import { AppHeader } from '../src/AppHeader'
+import { onSessionEnded } from '../src/api'
 
 export default function RootLayout() {
+  const router = useRouter()
+
+  // The session can end while any screen is open — an expired token, a
+  // revoked one, "sign out everywhere" from another phone. Whatever screen
+  // noticed shows its message; this is what takes the person to log in.
+  useEffect(() => onSessionEnded(() => router.replace('/login')), [router])
+
   return (
     <>
       {/* Headers are the dark blue now, so the clock and battery beside them

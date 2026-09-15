@@ -123,6 +123,28 @@ export const auth = {
   },
 }
 
+/**
+ * Who to tell when the session ends underneath the app.
+ *
+ * A token can die while the app is open: it expires, the clinic revokes it,
+ * or the person taps "sign out everywhere" on another phone. Before this the
+ * screen that noticed showed its error and stayed put, and every tab after
+ * it asked the server with no token at all — "Missing Bearer token" over and
+ * over, with no way back to the login screen except reinstalling. The root
+ * layout listens and sends the person to log in.
+ */
+const sessionListeners = new Set()
+export function onSessionEnded(fn) {
+  sessionListeners.add(fn)
+  return () => sessionListeners.delete(fn)
+}
+async function endSession() {
+  await auth.clear()
+  sessionListeners.forEach((fn) => { try { fn() } catch { /* a listener's problem */ } })
+}
+const SIGNED_OUT = () =>
+  new ApiError('Your session has ended. Please log in again.', 401, 'signed_out')
+
 let refreshing = null
 
 async function raw(path, { method = 'GET', body, withAuth = true } = {}) {
@@ -131,7 +153,10 @@ async function raw(path, { method = 'GET', body, withAuth = true } = {}) {
 
   if (withAuth) {
     const { access, org } = await auth.tokens()
-    if (access) headers.Authorization = `Bearer ${access}`
+    // Nothing to send means nothing to ask: the server would only say
+    // "Missing Bearer token", which tells the person less than this does.
+    if (!access) { await endSession(); throw SIGNED_OUT() }
+    headers.Authorization = `Bearer ${access}`
     if (org) headers['X-Organization-Id'] = org
   }
   headers['X-Device-Name'] = `MediFlow app (${Platform.OS})`
@@ -174,11 +199,17 @@ async function request(path, options = {}) {
     return await raw(path, options)
   } catch (error) {
     const { refresh } = await auth.tokens()
-    const canRetry =
+    const expired =
       error instanceof ApiError && error.status === 401 &&
-      options.withAuth !== false && refresh && !options._retried
+      options.withAuth !== false && error.code !== 'signed_out'
+    const canRetry = expired && refresh && !options._retried
 
-    if (!canRetry) throw error
+    if (!canRetry) {
+      // A 401 with nothing left to try means the session is over, however
+      // it ended. Say so once and go to the login screen.
+      if (expired) { await endSession(); throw SIGNED_OUT() }
+      throw error
+    }
 
     // One refresh at a time — the backend rotates refresh tokens, so a second
     // concurrent attempt would present one that has already been spent.
@@ -188,7 +219,7 @@ async function request(path, options = {}) {
       withAuth: false,
     })
       .then(async (res) => { await auth.save(res.data.auth); return res })
-      .catch(async (e) => { await auth.clear(); throw e })
+      .catch(async () => { await endSession(); throw SIGNED_OUT() })
       .finally(() => { refreshing = null })
 
     await refreshing
