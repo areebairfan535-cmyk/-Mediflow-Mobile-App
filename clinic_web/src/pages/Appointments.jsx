@@ -4,6 +4,25 @@ import {
   AppointmentType, Card, Badge, Loading, Empty, ErrorBox, Modal, timeOf, todayISO,
 } from '../components.jsx'
 
+/**
+ * What still needs a hand comes first.
+ *
+ * The API returns the day in clock order, which put six cancelled test rows
+ * above the two real bookings and pushed the only Confirm buttons on the
+ * page below the fold. Live appointments — booked, confirmed, arrived, in
+ * the room — stay in clock order at the top; what is finished sits under
+ * them, and what never happened sits at the bottom.
+ */
+const RANK = {
+  in_consultation: 0, arrived: 0, confirmed: 0, booked: 0,
+  completed: 1,
+  cancelled: 2, no_show: 2,
+}
+function byAttention(a, b) {
+  const r = (RANK[a.status] ?? 1) - (RANK[b.status] ?? 1)
+  return r !== 0 ? r : String(a.scheduled_at).localeCompare(String(b.scheduled_at))
+}
+
 export default function Appointments({ session, go }) {
   const [date, setDate] = useState(todayISO())
   const [doctorId, setDoctorId] = useState('')
@@ -16,7 +35,7 @@ export default function Appointments({ session, go }) {
     setState((s) => ({ ...s, loading: true }))
     try {
       const res = await api.appointments({ date, doctor_id: doctorId || undefined })
-      setState({ loading: false, rows: res.data.appointments })
+      setState({ loading: false, rows: [...res.data.appointments].sort(byAttention) })
     } catch (error) {
       setState({ loading: false, error })
     }
