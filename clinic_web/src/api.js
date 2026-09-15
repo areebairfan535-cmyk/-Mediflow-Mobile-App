@@ -167,6 +167,11 @@ export const api = {
   revokeSession: (id) => request(`/auth/sessions/${id}`, { method: 'DELETE' }),
   me: () => request('/me'),
 
+  // ---- the signed-in person's inbox (§20): bookings, moves, cancellations ----
+  notifications: (unread) => request(`/notifications${qs({ unread: unread ? 1 : undefined })}`),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () => request('/notifications/read', { method: 'POST' }),
+
   // ---- doctors ----
   doctors: (params) => request(`/doctors${qs(params)}`),
   doctor: (id) => request(`/doctors/${id}`),

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, tokens } from './api.js'
 import { Loading, setClinicTimeZone } from './components.jsx'
+import { NotificationBell } from './NotificationBell.jsx'
 import Login from './pages/Login.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import Dashboard from './pages/Dashboard.jsx'
@@ -157,10 +158,13 @@ export default function App() {
           <div className="crumb">
             {session.organization && <strong>{session.organization.name}</strong>}
           </div>
-          <div className="hint">
-            {session.user.is_platform_admin
-              ? 'platform admin'
-              : `${session.permissions.length} permissions`}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div className="hint">
+              {session.user.is_platform_admin
+                ? 'platform admin'
+                : `${session.permissions.length} permissions`}
+            </div>
+            <NotificationBell go={go} />
           </div>
         </header>
 

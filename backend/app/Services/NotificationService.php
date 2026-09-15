@@ -97,6 +97,30 @@ final class NotificationService extends Service
             'body'     => 'Claim %s is now %s.',
             'keys'     => ['claim_no', 'status'],
         ],
+
+        // ---- the doctor's side of the same appointments ----
+        //
+        // A patient booking from their phone used to reach the doctor only
+        // when the doctor happened to look at the right day. These are the
+        // same three events, addressed to the person the time was taken from.
+        'appointment.booked.doctor' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'New appointment',
+            'body'     => '%s booked %s with you.',
+            'keys'     => ['patient', 'when'],
+        ],
+        'appointment.rescheduled.doctor' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Appointment moved',
+            'body'     => '%s moved their appointment to %s.',
+            'keys'     => ['patient', 'when'],
+        ],
+        'appointment.cancelled.doctor' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Appointment cancelled',
+            'body'     => '%s cancelled their appointment on %s. %s',
+            'keys'     => ['patient', 'when', 'reason'],
+        ],
     ];
 
     /**
@@ -147,6 +171,46 @@ final class NotificationService extends Service
                 'subject_id'   => $payload['subject_id'] ?? null,
                 'payload'      => $payload,
                 'to_address'   => $to,
+                'scheduled_for' => $payload['scheduled_for'] ?? null,
+            ]);
+        }
+    }
+
+    /**
+     * Queue a notification for a staff account — a doctor, mostly.
+     *
+     * Staff are reached in the app and by push only; a clinic does not text
+     * its own doctors about bookings. The templates are the same catalogue,
+     * so the doctor's "new appointment" is filled and stored exactly like the
+     * patient's "appointment confirmed", and the inbox reads both the same.
+     *
+     * @param array<string,mixed> $payload values for the template, plus
+     *                            subject_type / subject_id
+     */
+    public function notifyUser(int $userId, string $event, array $payload = []): void
+    {
+        $definition = self::EVENTS[$event] ?? null;
+        if ($definition === null) {
+            error_log("[notify] unknown event: $event");
+            return;
+        }
+
+        $body = $this->render($definition, $payload);
+
+        foreach ($definition['channels'] as $channel) {
+            if (!in_array($channel, ['in_app', 'push'], true)) {
+                continue;
+            }
+            $this->queue([
+                'user_id'       => $userId,
+                'channel'       => $channel,
+                'event'         => $event,
+                'title'         => $definition['title'],
+                'body'          => $body,
+                'subject_type'  => $payload['subject_type'] ?? null,
+                'subject_id'    => $payload['subject_id'] ?? null,
+                'payload'       => $payload,
+                'to_address'    => null,
                 'scheduled_for' => $payload['scheduled_for'] ?? null,
             ]);
         }

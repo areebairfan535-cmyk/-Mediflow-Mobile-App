@@ -766,3 +766,69 @@ textarea:focus {
 .mt { margin-top: 14px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 @media (max-width: 700px) { .grid-3 { grid-template-columns: 1fr; } }
+
+/* ---------- Notification bell (topbar) ---------- */
+
+.bell-wrap { position: relative; }
+
+.bell {
+  position: relative;
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 17px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.bell:hover { background: var(--bg); }
+.bell.has-unread { border-color: var(--accent); }
+
+.bell-count {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger); color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 18px;
+  text-align: center;
+}
+
+.bell-panel {
+  position: absolute; top: 46px; right: 0;
+  width: 360px; max-height: 70vh; overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow), 0 16px 40px rgba(16, 36, 62, 0.14);
+  z-index: 40;
+}
+
+.bell-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+}
+
+.bell-empty { padding: 22px 16px; color: var(--muted); font-size: 13px; text-align: center; }
+
+.bell-list { list-style: none; margin: 0; padding: 6px; }
+
+.bell-row {
+  width: 100%;
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 10px 10px;
+  border: 0; border-radius: 9px;
+  background: transparent;
+  text-align: left; cursor: pointer;
+  font: inherit; color: inherit;
+}
+.bell-row:hover { background: var(--bg); }
+.bell-row.unread { background: var(--accent-soft); }
+.bell-row.unread:hover { background: #d9ecf5; }
+
+.bell-icon { font-size: 18px; line-height: 1.2; flex: 0 0 auto; }
+.bell-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bell-title { font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.bell-body { font-size: 13px; color: var(--body); line-height: 1.4; }
+.bell-when { font-size: 11.5px; color: var(--muted); margin-top: 2px; }

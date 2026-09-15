@@ -232,7 +232,11 @@ final class AppointmentService extends Service
     }
 
     /**
-     * Queue a patient notification about an appointment.
+     * Tell both sides of an appointment what just happened to it.
+     *
+     * The patient gets the event as named. The doctor gets the ".doctor"
+     * twin of it — unless the doctor is the one who did it, in which case
+     * they already know. A reminder is the patient's alone.
      *
      * Wrapped so a notification failure can never break a booking — the
      * appointment is the transaction that matters.
@@ -243,26 +247,35 @@ final class AppointmentService extends Service
     private function notify(array $appointment, string $event, array $extra = []): void
     {
         try {
-            $doctorName = (new \App\Repositories\DoctorRepository())
-                ->forOrganization($this->requireOrganization())
-                ->displayName((int) $appointment['doctor_id']);
+            $org     = $this->requireOrganization();
+            $doctors = (new \App\Repositories\DoctorRepository())->forOrganization($org);
+            $doctor  = $doctors->find((int) $appointment['doctor_id']);
+            $patient = (new \App\Repositories\PatientRepository())
+                ->forOrganization($org)
+                ->find((int) $appointment['patient_id']);
 
             $when = (new \DateTimeImmutable(
                 (string) $appointment['scheduled_at'],
                 new \DateTimeZone('UTC'),
             ))->setTimezone($this->timezone())->format('D d M, H:i');
 
-            (new NotificationService($this->organizationId, $this->actorId))->notifyPatient(
-                (int) $appointment['patient_id'],
-                $event,
-                [
-                    'doctor'       => $doctorName,
-                    'when'         => $when,
-                    'reason'       => $appointment['cancelled_reason'] ?? '',
-                    'subject_type' => 'appointment',
-                    'subject_id'   => (int) $appointment['id'],
-                ] + $extra,
-            );
+            $payload = [
+                'doctor'       => $doctors->displayName((int) $appointment['doctor_id']),
+                'patient'      => trim(($patient['first_name'] ?? '') . ' ' . ($patient['last_name'] ?? ''))
+                                  ?: 'A patient',
+                'when'         => $when,
+                'reason'       => $appointment['cancelled_reason'] ?? '',
+                'subject_type' => 'appointment',
+                'subject_id'   => (int) $appointment['id'],
+            ] + $extra;
+
+            $notifications = new NotificationService($this->organizationId, $this->actorId);
+            $notifications->notifyPatient((int) $appointment['patient_id'], $event, $payload);
+
+            $doctorUser = (int) ($doctor['user_id'] ?? 0);
+            if ($event !== 'appointment.reminder' && $doctorUser > 0 && $doctorUser !== $this->actorId) {
+                $notifications->notifyUser($doctorUser, $event . '.doctor', $payload);
+            }
         } catch (\Throwable $e) {
             error_log('[notify] appointment notification failed: ' . $e->getMessage());
         }
