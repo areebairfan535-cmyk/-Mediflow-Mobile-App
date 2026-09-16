@@ -33,6 +33,9 @@ final class AuthController extends Controller
             'email'    => 'required|email|max:255',
             'password' => 'required|string|min:8|max:255',
             'phone'    => 'nullable|string|max:32',
+            // The identity card a self-registering patient puts on their chart.
+            'national_id'        => 'nullable|string|max:32',
+            'national_id_expiry' => 'nullable|date',
             'locale'   => 'nullable|string|max:10',
             // The clinic a single-clinic patient app was built for. Sent, it
             // opens a chart there; absent, registration grants nothing.

@@ -58,6 +58,26 @@ final class RbacService
     }
 
     /**
+     * The user ids that run this clinic — active owners, and the solo
+     * practitioner where the practice is one person. Who gets told when a
+     * patient submits something that needs a decision.
+     *
+     * @return list<int>
+     */
+    public function ownersOf(int $organizationId): array
+    {
+        $ids = [];
+        foreach ($this->roles->members($organizationId) as $m) {
+            if (($m['status'] ?? '') === 'active'
+                && in_array($m['role_slug'] ?? '', ['org_owner', 'solo_practitioner'], true)
+            ) {
+                $ids[] = (int) $m['user_id'];
+            }
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /**
      * Add an existing user to an organization with a role.
      *
      * Two guards matter here:

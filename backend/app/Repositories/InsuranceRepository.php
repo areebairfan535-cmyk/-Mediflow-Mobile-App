@@ -136,6 +136,9 @@ final class InsuranceRepository extends Repository
             'group_number', 'policy_holder_name', 'relation_to_patient',
             'coverage_type', 'coverage_amount', 'copay_percent', 'deductible',
             'valid_from', 'valid_to', 'is_primary',
+            // Set only when the patient typed it in themselves; the status
+            // then starts as pending and the clinic decides.
+            'submitted_by', 'status',
         ];
 
         $row = array_only($data, $columns) + [
@@ -178,6 +181,7 @@ final class InsuranceRepository extends Repository
             'policy_number', 'member_id', 'group_number', 'policy_holder_name',
             'relation_to_patient', 'coverage_type', 'coverage_amount',
             'copay_percent', 'deductible', 'valid_from', 'valid_to', 'status',
+            'reviewed_by', 'reviewed_at', 'review_note',
         ]);
 
         if ($allowed !== []) {

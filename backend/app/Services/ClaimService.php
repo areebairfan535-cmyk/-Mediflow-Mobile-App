@@ -70,6 +70,61 @@ final class ClaimService extends Service
     }
 
     // ---------------------------------------------------------------
+    // Policies a patient entered themselves (§2, §7)
+    // ---------------------------------------------------------------
+
+    /**
+     * The clinic's answer to a policy the patient typed in from the app.
+     *
+     * Approve makes it `active` — from then on it is a policy like any the
+     * desk entered, and claims can be raised against it. Reject keeps the
+     * row as `rejected` with the reason, so the patient is told what was
+     * wrong rather than watching their policy disappear. Either way the
+     * patient hears.
+     *
+     * @return array<string,mixed> the policy after the decision
+     */
+    public function reviewPolicy(int $policyId, string $decision, ?string $note = null): array
+    {
+        $org    = $this->requireOrganization();
+        $policy = $this->insurance()->findPolicy($org, $policyId);
+        if ($policy === null) {
+            throw new NotFoundException('Policy not found');
+        }
+        if ($policy['status'] !== 'pending') {
+            throw new ConflictException("This policy is {$policy['status']}, not waiting for review.");
+        }
+        if ($decision === 'reject' && trim((string) $note) === '') {
+            throw new ValidationException(['note' => ['Say why, so the patient knows what to fix.']]);
+        }
+
+        $after = $this->insurance()->updatePolicy($org, $policyId, [
+            'status'      => $decision === 'approve' ? 'active' : 'rejected',
+            'reviewed_by' => $this->actorId,
+            'reviewed_at' => now(),
+            'review_note' => $note !== null ? trim($note) : null,
+        ]);
+
+        try {
+            (new NotificationService($this->organizationId, $this->actorId))->notifyPatient(
+                (int) $policy['patient_id'],
+                $decision === 'approve' ? 'insurance.approved' : 'insurance.rejected',
+                [
+                    'provider'      => (string) ($policy['provider_name'] ?? 'insurance'),
+                    'policy_number' => (string) $policy['policy_number'],
+                    'reason'        => (string) ($note ?? ''),
+                    'subject_type'  => 'insurance_policy',
+                    'subject_id'    => $policyId,
+                ],
+            );
+        } catch (\Throwable $e) {
+            error_log('[notify] policy review notification failed: ' . $e->getMessage());
+        }
+
+        return $after;
+    }
+
+    // ---------------------------------------------------------------
     // Reads
     // ---------------------------------------------------------------
 

@@ -27,6 +27,52 @@ final class PatientPortalController extends Controller
         $this->ok($data);
     }
 
+    // ---------------- insurance, entered by the patient (§2, §7) ----------------
+
+    public function insuranceProviders(Request $request): never
+    {
+        $this->ok(['providers' => PatientPortalService::for($request)->insuranceProviders()]);
+    }
+
+    public function submitInsurance(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'insurance_provider_id' => 'required|integer',
+            'policy_number'         => 'required|string|max:120',
+            'member_id'             => 'nullable|string|max:120',
+            'policy_holder_name'    => 'nullable|string|max:200',
+            'relation_to_patient'   => 'nullable|in:self,spouse,child,parent,other',
+            'valid_from'            => 'nullable|date',
+            'valid_to'              => 'nullable|date',
+        ]);
+
+        $policy = PatientPortalService::for($request)->submitInsurance($data);
+
+        (new AuditService())->log(
+            $request, 'create', 'insurance_policy', (int) $policy['id'], null,
+            ['policy_number' => $policy['policy_number'], 'status' => 'pending'],
+            (int) $policy['patient_id'],
+        );
+
+        $this->created(['policy' => $policy]);
+    }
+
+    public function updateInsurance(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'policy_number'       => 'nullable|string|max:120',
+            'member_id'           => 'nullable|string|max:120',
+            'policy_holder_name'  => 'nullable|string|max:200',
+            'relation_to_patient' => 'nullable|in:self,spouse,child,parent,other',
+            'valid_from'          => 'nullable|date',
+            'valid_to'            => 'nullable|date',
+        ]);
+
+        $policy = PatientPortalService::for($request)->updateInsurance($request->intParam('id'), $data);
+
+        $this->ok(['policy' => $policy]);
+    }
+
     public function profile(Request $request): never
     {
         $this->ok(['patient' => PatientPortalService::for($request)->profile()]);
@@ -40,6 +86,9 @@ final class PatientPortalController extends Controller
             'last_name'          => 'nullable|string|min:1|max:120',
             'date_of_birth'      => 'nullable|date',
             'gender'             => 'nullable|in:male,female,other,unknown',
+            // The identity card: number and the date it stops being one.
+            'national_id'        => 'nullable|string|max:32',
+            'national_id_expiry' => 'nullable|date',
             // Contact details.
             'phone'              => 'nullable|string|max:32',
             'email'              => 'nullable|email|max:255',

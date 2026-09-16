@@ -83,8 +83,15 @@ final class AuthService
 
         $this->audit->logAuth($request, 'register', (int) $user['id']);
 
+        // The card details are not on the user row — they belong to the chart —
+        // so they ride along here for openChartFor to file.
+        $chartFacts = $user + [
+            'national_id'        => isset($data['national_id']) ? trim((string) $data['national_id']) : null,
+            'national_id_expiry' => $data['national_id_expiry'] ?? null,
+        ];
+
         $clinic        = trim((string) ($data['clinic'] ?? ''));
-        $organizations = $clinic === '' ? [] : $this->openChartFor((int) $user['id'], $user, $clinic);
+        $organizations = $clinic === '' ? [] : $this->openChartFor((int) $user['id'], $chartFacts, $clinic);
 
         $tokens = $this->tokens->issuePair((int) $user['id'], null, $this->deviceContext($request));
 
@@ -146,15 +153,17 @@ final class AuthService
             // receptionist typed in.
             $patients = (new PatientRepository())->forOrganization($orgId);
             $patients->create([
-                'user_id'    => $userId,
-                'mrn'        => $patients->nextMrn(),
-                'first_name' => $parts[0] ?? (string) $user['name'],
-                'last_name'  => $parts[1] ?? '',
-                'phone'      => $user['phone'] ?? null,
-                'email'      => $user['email'],
-                'status'     => 'active',
-                'created_at' => now(),
-                'updated_at' => now(),
+                'user_id'            => $userId,
+                'mrn'                => $patients->nextMrn(),
+                'first_name'         => $parts[0] ?? (string) $user['name'],
+                'last_name'          => $parts[1] ?? '',
+                'phone'              => $user['phone'] ?? null,
+                'email'              => $user['email'],
+                'national_id'        => $user['national_id'] ?? null,
+                'national_id_expiry' => $user['national_id_expiry'] ?? null,
+                'status'             => 'active',
+                'created_at'         => now(),
+                'updated_at'         => now(),
             ]);
 
             return $rbac->membershipsFor($userId);

@@ -22,6 +22,7 @@ const ICONS = {
   'appointment.booked.doctor':      '📅',
   'appointment.rescheduled.doctor': '🔁',
   'appointment.cancelled.doctor':   '✖',
+  'insurance.submitted':            '🛡',
 }
 
 export function NotificationBell({ go }) {
@@ -60,9 +61,12 @@ export function NotificationBell({ go }) {
       setUnread((n) => Math.max(0, n - 1))
       try { await api.markNotificationRead(row.id) } catch { /* the next poll corrects it */ }
     }
-    if (row.subject_type === 'appointment' && go) {
+    if (go && row.subject_type === 'appointment') {
       setOpen(false)
       go('appointments')
+    } else if (go && row.subject_type === 'insurance_policy') {
+      setOpen(false)
+      go('patients')
     }
   }
 

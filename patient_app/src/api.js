@@ -230,10 +230,12 @@ async function request(path, options = {}) {
 export const api = {
   // A brand-new patient. The clinic slug is what turns the account into a
   // chart; see CLINIC_SLUG.
-  register: (name, email, password) =>
+  register: (name, email, password, extra = {}) =>
     request('/auth/register', {
       method: 'POST',
-      body: { name, email, password, clinic: CLINIC_SLUG },
+      // extra: phone, national_id, national_id_expiry — the rest of a
+      // complete profile, filed on the chart the clinic opens.
+      body: { name, email, password, clinic: CLINIC_SLUG, ...extra },
       withAuth: false,
     }),
   // Attaches a login to the chart the clinic already holds. The patient ID and
@@ -270,6 +272,10 @@ export const api = {
   dashboard: () => request('/patient/dashboard'),
   profile: () => request('/patient/profile'),
   updateProfile: (body) => request('/patient/profile', { method: 'PUT', body }),
+  // The patient's own insurance. It lands as pending; the clinic approves it.
+  insuranceProviders: () => request('/patient/insurance/providers'),
+  submitInsurance: (body) => request('/patient/insurance', { method: 'POST', body }),
+  updateInsurance: (id, body) => request(`/patient/insurance/${id}`, { method: 'PUT', body }),
 
   // ---- online payment (§7) ----
   // Asked before a Pay button is drawn: a clinic with no gateway configured

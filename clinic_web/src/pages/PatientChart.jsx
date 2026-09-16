@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, openPdf } from '../api.js'
 import {
   Card, Badge, Loading, Empty, ErrorBox, Modal,
-  AllergyBanner, dateOf, initials,
+  AllergyBanner, dateOf, initials, todayISO,
 } from '../components.jsx'
 import { money } from './Billing.jsx'
 import { AiPatientSummary } from '../ai.jsx'
@@ -23,6 +23,28 @@ export default function PatientChart({ patientId, session, go }) {
   // Likewise the lab order the results form is being filled in against.
   const [labOrder, setLabOrder] = useState(null)
   const [notice, setNotice] = useState(null)
+
+  const [busyPolicy, setBusyPolicy] = useState(null)
+
+  // The clinic's yes or no to cover the patient entered themselves.
+  async function reviewPolicy(pol, decision) {
+    let note = null
+    if (decision === 'reject') {
+      note = window.prompt('Why is this policy not accepted? The patient will read this.')
+      if (note === null) return
+      if (note.trim() === '') { setNotice({ ok: false, message: 'A rejection needs a reason.' }); return }
+    }
+    setBusyPolicy(pol.id)
+    try {
+      await api.reviewPolicy(pol.id, decision, note)
+      setNotice({ ok: true, message: decision === 'approve' ? 'Policy approved — it can be billed now.' : 'Policy rejected; the patient has been told.' })
+      await load()
+    } catch (error) {
+      setNotice({ ok: false, message: error.message })
+    } finally {
+      setBusyPolicy(null)
+    }
+  }
 
   async function load() {
     setState({ loading: true })
@@ -209,6 +231,20 @@ export default function PatientChart({ patientId, session, go }) {
                 <tr><td className="strong">Phone</td><td>{p.emergency_phone || '—'}</td></tr>
                 <tr><td className="strong">Relation</td><td>{p.emergency_relation || '—'}</td></tr>
                 <tr><td className="strong">Date of birth</td><td>{p.date_of_birth ? dateOf(p.date_of_birth) : '—'}</td></tr>
+                <tr>
+                  <td className="strong">ID card</td>
+                  <td>
+                    <span className="mono">{p.national_id || '—'}</span>
+                    {p.national_id_expiry && (
+                      <span className="hint">
+                        {' · expires '}{dateOf(p.national_id_expiry)}
+                        {p.national_id_expiry < todayISO() && (
+                          <Badge tone="danger" style={{ marginLeft: 6 }}>expired</Badge>
+                        )}
+                      </span>
+                    )}
+                  </td>
+                </tr>
               </tbody>
             </table>
           </Card>
@@ -412,10 +448,25 @@ export default function PatientChart({ patientId, session, go }) {
                       {Number(pol.is_primary) === 1 && <Badge tone="ok">primary</Badge>}
                       <Badge tone={
                         pol.status === 'active' ? undefined
-                          : pol.status === 'expired' ? 'danger' : 'warn'
+                          : pol.status === 'expired' || pol.status === 'rejected' ? 'danger' : 'warn'
                       }>
-                        {pol.status}
+                        {pol.status === 'pending' ? 'awaiting approval' : pol.status}
                       </Badge>
+                      {/* The patient typed this in from the app; nobody here
+                          has seen the card. Approve makes it a policy like any
+                          other; reject needs a reason the patient will read. */}
+                      {pol.status === 'pending' && session.can('policy.manage') && (
+                        <>
+                          <button className="btn btn-sm" disabled={busyPolicy === pol.id}
+                                  onClick={() => reviewPolicy(pol, 'approve')}>
+                            Approve
+                          </button>
+                          <button className="btn btn-sm btn-secondary" disabled={busyPolicy === pol.id}
+                                  onClick={() => reviewPolicy(pol, 'reject')}>
+                            Reject
+                          </button>
+                        </>
+                      )}
                       {session.can('policy.manage') && (
                         <button className="btn btn-sm btn-secondary"
                                 onClick={() => { setPolicy(pol); setModal('policy-edit') }}>
@@ -469,8 +520,20 @@ export default function PatientChart({ patientId, session, go }) {
                             {pol.valid_from ? dateOf(pol.valid_from) : '—'}
                             {' → '}
                             {pol.valid_to ? dateOf(pol.valid_to) : 'open ended'}
+                            {pol.valid_to && pol.valid_to < todayISO() && (
+                              <Badge tone="danger" style={{ marginLeft: 8 }}>expired</Badge>
+                            )}
                           </td>
                         </tr>
+                        {pol.submitted_by && (
+                          <tr>
+                            <td className="strong">Entered by</td>
+                            <td colSpan={3}>
+                              the patient, from the app
+                              {pol.review_note ? ` · ${pol.review_note}` : ''}
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -557,6 +620,8 @@ export default function PatientChart({ patientId, session, go }) {
             { key: 'first_name', label: 'First name', required: true, default: p.first_name },
             { key: 'last_name', label: 'Last name', required: true, default: p.last_name },
             { key: 'date_of_birth', label: 'Date of birth', type: 'date', default: p.date_of_birth || '' },
+            { key: 'national_id', label: 'ID card number', default: p.national_id || '', placeholder: '33100-1234567-1' },
+            { key: 'national_id_expiry', label: 'ID card expiry', type: 'date', default: p.national_id_expiry || '' },
             {
               key: 'gender', label: 'Gender', type: 'select', default: p.gender || 'unknown',
               options: ['male', 'female', 'other', 'unknown'],

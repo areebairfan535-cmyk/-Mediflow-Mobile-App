@@ -590,6 +590,8 @@ POST   /insurance/providers                   perm: policy.manage
 GET    /patients/{patientId}/policies         perm: policy.view
 POST   /patients/{patientId}/policies         perm: policy.manage
 PUT    /insurance/policies/{id}               perm: policy.manage
+POST   /insurance/policies/{id}/review        perm: policy.manage — approve or
+                                              reject cover the patient entered
 
 GET    /invoices/{id}/eligibility             what cover would pay on this bill
 POST   /insurance/check                       the same question, for an amount
@@ -620,8 +622,11 @@ is ignored rather than honoured.
 ```
 GET    /patient/dashboard                     one call fills the home screen
 GET    /patient/profile
-PUT    /patient/profile                       own details + contact; NOT blood
-                                              group, allergies or insurance
+PUT    /patient/profile                       own details, ID card + contact;
+                                              NOT blood group or allergies
+GET    /patient/insurance/providers           insurers the patient can name
+POST   /patient/insurance                     own policy — lands as pending
+PUT    /patient/insurance/{id}                until the clinic approves it
 
 GET    /patient/doctors?search=                book with whom
 GET    /patient/doctors/filters                specialties and clinics to

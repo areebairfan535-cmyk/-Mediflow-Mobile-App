@@ -365,6 +365,12 @@ $router->group('/api/v1', [], function ($router): void {
             $router->get('/export',        [PatientPortalController::class, 'exportMyData']);
             $router->put('/profile',       [PatientPortalController::class, 'updateProfile']);
 
+            // §2, §7: the patient's own insurance. Lands as pending; the
+            // clinic approves it (POST /insurance/policies/{id}/review).
+            $router->get('/insurance/providers', [PatientPortalController::class, 'insuranceProviders']);
+            $router->post('/insurance',          [PatientPortalController::class, 'submitInsurance']);
+            $router->put('/insurance/{id}',      [PatientPortalController::class, 'updateInsurance']);
+
             $router->get('/appointments',  [PatientPortalController::class, 'appointments']);
 
             // §3: the patient books for themselves. patient_id comes from the
@@ -439,6 +445,9 @@ $router->group('/api/v1', [], function ($router): void {
         $router->post('/patients/{patientId}/policies', [InsuranceController::class, 'storePolicy'],
             ['perm:policy.manage']);
         $router->put('/insurance/policies/{id}', [InsuranceController::class, 'updatePolicy'],
+            ['perm:policy.manage']);
+        // The clinic's yes or no to a policy the patient entered from the app.
+        $router->post('/insurance/policies/{id}/review', [InsuranceController::class, 'reviewPolicy'],
             ['perm:policy.manage']);
 
         // ---- Eligibility (§25 Phase 5) ----

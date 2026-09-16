@@ -131,7 +131,7 @@ final class InsuranceController extends Controller
             'deductible'          => 'nullable|numeric|min:0',
             'valid_from'          => 'nullable|date',
             'valid_to'            => 'nullable|date',
-            'status'              => 'nullable|in:active,expired,suspended',
+            'status'              => 'nullable|in:active,expired,suspended,pending,rejected',
         ]);
 
         $org      = (int) $request->organizationId();
@@ -143,6 +143,36 @@ final class InsuranceController extends Controller
         }
 
         $after = $this->repo()->updatePolicy($org, $policyId, $data);
+
+        (new AuditService())->logUpdate(
+            $request, 'insurance_policy', $policyId, $before, $after, (int) $before['patient_id'],
+        );
+
+        $this->ok(['policy' => $after]);
+    }
+
+    /**
+     * POST /insurance/policies/{id}/review — approve or reject a policy the
+     * patient entered from the app. A rejection needs a reason.
+     */
+    public function reviewPolicy(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'decision' => 'required|in:approve,reject',
+            'note'     => 'nullable|string|max:500',
+        ]);
+
+        $policyId = $request->intParam('id');
+        $before   = $this->repo()->findPolicy((int) $request->organizationId(), $policyId);
+        if ($before === null) {
+            throw new NotFoundException('Policy not found');
+        }
+
+        $after = ClaimService::for($request)->reviewPolicy(
+            $policyId,
+            (string) $data['decision'],
+            isset($data['note']) ? (string) $data['note'] : null,
+        );
 
         (new AuditService())->logUpdate(
             $request, 'insurance_policy', $policyId, $before, $after, (int) $before['patient_id'],

@@ -7,7 +7,9 @@ use App\Core\ConflictException;
 use App\Core\ForbiddenException;
 use App\Core\NotFoundException;
 use App\Core\Service;
+use App\Core\ValidationException;
 use App\Repositories\ClinicalRepository;
+use App\Repositories\InsuranceRepository;
 use App\Repositories\InvoiceRepository;
 use App\Repositories\PatientPortalRepository;
 use App\Repositories\PatientRepository;
@@ -174,6 +176,7 @@ final class PatientPortalService extends Service
         // clinic's to record, and the clinic app is where they are corrected.
         $allowed = array_only($data, [
             'first_name', 'last_name', 'date_of_birth', 'gender',
+            'national_id', 'national_id_expiry',
             'phone', 'email', 'address', 'city',
             'emergency_name', 'emergency_phone', 'emergency_relation',
         ]);
@@ -187,6 +190,133 @@ final class PatientPortalService extends Service
         $this->patients()->update($this->meId(), $allowed + ['updated_by' => $this->actorId]);
 
         return ['before' => $before, 'after' => $this->profile()];
+    }
+
+    // ---------------- insurance, from the patient's side (§2, §7) ----------------
+
+    /**
+     * Insurers a patient can name — the clinic's own and the shared ones.
+     * Trimmed to what the picker needs; the claim formats and settle days
+     * are the clinic's business.
+     *
+     * @return list<array{id:int,name:string}>
+     */
+    public function insuranceProviders(): array
+    {
+        $rows = (new InsuranceRepository())->providersFor($this->requireOrganization());
+
+        return array_map(
+            static fn (array $p): array => ['id' => (int) $p['id'], 'name' => (string) $p['name']],
+            $rows,
+        );
+    }
+
+    /**
+     * A patient puts their own cover on file. It lands as `pending`: nobody
+     * at the desk has seen the card, so it counts for nothing until someone
+     * with policy.manage approves it (see ClaimService::reviewPolicy). The
+     * clinic is told there is something to look at.
+     *
+     * @param array<string,mixed> $data validated: insurance_provider_id,
+     *        policy_number, member_id?, policy_holder_name?, valid_from?, valid_to?
+     * @return array<string,mixed> the policy as filed
+     */
+    public function submitInsurance(array $data): array
+    {
+        $org  = $this->requireOrganization();
+        $repo = new InsuranceRepository();
+
+        if (!$repo->providerUsableIn((int) $data['insurance_provider_id'], $org)) {
+            throw new ValidationException(
+                ['insurance_provider_id' => ['That insurer is not available at this clinic.']]
+            );
+        }
+        if (!empty($data['valid_from']) && !empty($data['valid_to'])
+            && $data['valid_to'] < $data['valid_from']
+        ) {
+            throw new ValidationException(['valid_to' => ['The policy cannot end before it starts.']]);
+        }
+
+        $patientId = $this->meId();
+        $policy = $repo->createPolicy($org, array_only($data, [
+            'insurance_provider_id', 'policy_number', 'member_id',
+            'policy_holder_name', 'relation_to_patient', 'valid_from', 'valid_to',
+        ]) + [
+            'patient_id'   => $patientId,
+            'status'       => 'pending',
+            'submitted_by' => $this->actorId,
+            // First cover on file is the primary one; a second waits for the
+            // clinic to say which is which.
+            'is_primary'   => $repo->policiesFor($org, $patientId) === [] ? 1 : 0,
+        ]);
+
+        $this->tellClinicAboutInsurance($policy);
+
+        return $policy;
+    }
+
+    /**
+     * A patient corrects their own submission — the number, the dates. Any
+     * change sends it back to `pending`: what the clinic approved is no
+     * longer what is on the row.
+     *
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    public function updateInsurance(int $policyId, array $data): array
+    {
+        $org    = $this->requireOrganization();
+        $repo   = new InsuranceRepository();
+        $policy = $repo->findPolicy($org, $policyId);
+
+        if ($policy === null || (int) $policy['patient_id'] !== $this->meId()) {
+            throw new NotFoundException('Policy not found');
+        }
+
+        $allowed = array_only($data, [
+            'policy_number', 'member_id', 'policy_holder_name',
+            'relation_to_patient', 'valid_from', 'valid_to',
+        ]);
+        if ($allowed === []) {
+            return $policy;
+        }
+
+        $updated = $repo->updatePolicy($org, $policyId, $allowed + [
+            'status'      => 'pending',
+            'reviewed_by' => null,
+            'reviewed_at' => null,
+            'review_note' => null,
+        ]);
+
+        $this->tellClinicAboutInsurance($updated);
+
+        return $updated;
+    }
+
+    /**
+     * Whoever runs the clinic hears that a policy is waiting. Wrapped so a
+     * notification failure can never lose the submission itself.
+     *
+     * @param array<string,mixed> $policy
+     */
+    private function tellClinicAboutInsurance(array $policy): void
+    {
+        try {
+            $me   = $this->me();
+            $name = trim(($me['first_name'] ?? '') . ' ' . ($me['last_name'] ?? '')) ?: 'A patient';
+
+            $notifications = new NotificationService($this->organizationId, $this->actorId);
+            foreach ((new RbacService())->ownersOf($this->requireOrganization()) as $userId) {
+                $notifications->notifyUser($userId, 'insurance.submitted', [
+                    'patient'      => $name,
+                    'provider'     => (string) ($policy['provider_name'] ?? 'an insurer'),
+                    'subject_type' => 'insurance_policy',
+                    'subject_id'   => (int) $policy['id'],
+                ]);
+            }
+        } catch (\Throwable $e) {
+            error_log('[notify] insurance submission notification failed: ' . $e->getMessage());
+        }
     }
 
     /** @return list<array<string,mixed>> */

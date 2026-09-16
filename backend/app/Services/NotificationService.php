@@ -98,6 +98,26 @@ final class NotificationService extends Service
             'keys'     => ['claim_no', 'status'],
         ],
 
+        // ---- insurance a patient entered themselves (§2, §7) ----
+        'insurance.submitted' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Insurance to review',
+            'body'     => '%s added a %s policy. It needs your approval before it can be billed.',
+            'keys'     => ['patient', 'provider'],
+        ],
+        'insurance.approved' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Insurance approved',
+            'body'     => 'Your %s policy %s is now on file at the clinic.',
+            'keys'     => ['provider', 'policy_number'],
+        ],
+        'insurance.rejected' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Insurance not accepted',
+            'body'     => 'Your %s policy %s could not be verified. %s',
+            'keys'     => ['provider', 'policy_number', 'reason'],
+        ],
+
         // ---- the doctor's side of the same appointments ----
         //
         // A patient booking from their phone used to reach the doctor only

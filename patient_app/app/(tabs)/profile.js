@@ -14,6 +14,11 @@ import {
  * the API allow-list enforces that, and this screen shows them read-only so
  * the boundary is visible rather than surprising.
  */
+const EMPTY_POLICY = {
+  insurance_provider_id: null, policy_number: '', member_id: '',
+  policy_holder_name: '', valid_from: '', valid_to: '',
+}
+
 export default function Profile() {
   const router = useRouter()
   const [state, setState] = useState({ loading: true })
@@ -25,6 +30,9 @@ export default function Profile() {
   const [selfForm, setSelfForm] = useState({})
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState(null)
+  // The insurance form, or null when closed. Carries an id when editing.
+  const [insuranceForm, setInsuranceForm] = useState(null)
+  const [providers, setProviders] = useState([])
 
   const load = useCallback(async () => {
     setState((s) => ({ ...s, loading: !s.p }))
@@ -46,6 +54,8 @@ export default function Profile() {
         last_name: p.last_name || '',
         date_of_birth: p.date_of_birth || '',
         gender: p.gender || 'unknown',
+        national_id: p.national_id || '',
+        national_id_expiry: p.national_id_expiry || '',
       })
     } catch (error) {
       setState({ loading: false, error })
@@ -53,6 +63,45 @@ export default function Profile() {
   }, [])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
+
+  // Insurers are a short, stable list; fetched once for the picker.
+  useEffect(() => {
+    api.insuranceProviders()
+      .then((res) => setProviders(res.data.providers || []))
+      .catch(() => {})
+  }, [])
+
+  async function saveInsurance() {
+    const f = insuranceForm
+    if (!f.insurance_provider_id || f.policy_number.trim() === '') {
+      setNotice({ ok: false, message: 'Pick your insurer and type the policy number.' })
+      return
+    }
+    setBusy(true)
+    setNotice(null)
+    try {
+      const blank = (v) => (String(v || '').trim() === '' ? undefined : String(v).trim())
+      const body = {
+        policy_number: f.policy_number.trim(),
+        member_id: blank(f.member_id),
+        policy_holder_name: blank(f.policy_holder_name),
+        valid_from: blank(f.valid_from),
+        valid_to: blank(f.valid_to),
+      }
+      if (f.id) {
+        await api.updateInsurance(f.id, body)
+      } else {
+        await api.submitInsurance({ ...body, insurance_provider_id: f.insurance_provider_id })
+      }
+      setNotice({ ok: true, message: 'Sent to the clinic. They will approve it after checking your card.' })
+      setInsuranceForm(null)
+      await load()
+    } catch (error) {
+      setNotice({ ok: false, message: error.message })
+    } finally {
+      setBusy(false)
+    }
+  }
 
   /**
    * "Saved" is worth saying once and then getting out of the way.
@@ -89,9 +138,12 @@ export default function Profile() {
     try {
       // An empty date is sent as null, not as "" — the column is a DATE and
       // MySQL will not accept an empty string for one.
+      const blank = (v) => (String(v || '').trim() === '' ? null : String(v).trim())
       await api.updateProfile({
         ...selfForm,
-        date_of_birth: selfForm.date_of_birth.trim() === '' ? null : selfForm.date_of_birth.trim(),
+        date_of_birth: blank(selfForm.date_of_birth),
+        national_id: blank(selfForm.national_id),
+        national_id_expiry: blank(selfForm.national_id_expiry),
       })
       setNotice({ ok: true, message: 'Your details were updated.' })
       setEditingSelf(false)
@@ -187,6 +239,8 @@ export default function Profile() {
               ['first_name', 'First name'],
               ['last_name', 'Last name'],
               ['date_of_birth', 'Date of birth (YYYY-MM-DD)'],
+              ['national_id', 'ID card number'],
+              ['national_id_expiry', 'ID card expiry (YYYY-MM-DD)'],
             ].map(([key, label]) => (
               <View key={key}>
                 <Text style={s.label}>{label}</Text>
@@ -195,7 +249,11 @@ export default function Profile() {
                   value={selfForm[key]}
                   onChangeText={(v) => setSelfForm({ ...selfForm, [key]: v })}
                   autoCapitalize="words"
-                  placeholder={key === 'date_of_birth' ? '1994-03-12' : ''}
+                  placeholder={
+                    key === 'date_of_birth' ? '1994-03-12'
+                      : key === 'national_id' ? '33100-1234567-1'
+                        : key === 'national_id_expiry' ? '2031-05-20' : ''
+                  }
                 />
               </View>
             ))}
@@ -241,11 +299,17 @@ export default function Profile() {
               <Field label="Age" value={p.age != null ? `${p.age} years` : '—'} />
               <Field label="Gender" value={p.gender} />
               <Field label="Blood group" value={p.blood_group || '—'} />
+              <Field label="ID card" value={p.national_id || '—'} />
+              <Field
+                label="ID card expiry"
+                value={p.national_id_expiry ? dateOnly(p.national_id_expiry) : '—'}
+                badge={expiryBadge(p.national_id_expiry)}
+              />
             </View>
             {/* Says what this card does NOT cover, so the missing Edit on
                 allergies and conditions reads as a rule, not an oversight. */}
             <Text style={[s.muted, { fontSize: 11.5 }]}>
-              Allergies, conditions and insurance are maintained by your clinic.
+              Allergies and conditions are maintained by your clinic. Insurance you add is checked by them first.
             </Text>
           </>
         )}
@@ -350,19 +414,70 @@ export default function Profile() {
         )}
       </Card>
 
-      <SectionTitle>Insurance</SectionTitle>
+      <SectionTitle
+        action={
+          <Pressable onPress={() => setInsuranceForm(insuranceForm ? null : { ...EMPTY_POLICY })}>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13.5 }}>
+              {insuranceForm ? 'Cancel' : 'Add'}
+            </Text>
+          </Pressable>
+        }
+      >
+        Insurance
+      </SectionTitle>
       <Card>
-        {(p.insurance || []).length === 0 ? (
-          <Text style={s.body}>No policy on file.</Text>
+        {insuranceForm ? (
+          <InsuranceForm
+            form={insuranceForm}
+            setForm={setInsuranceForm}
+            providers={providers}
+            busy={busy}
+            onSave={saveInsurance}
+          />
+        ) : (p.insurance || []).length === 0 ? (
+          <Text style={s.body}>
+            No policy on file. Add yours and the clinic will check it before it
+            is used for billing.
+          </Text>
         ) : (
-          p.insurance.map((pol) => (
-            <View key={pol.id} style={{ marginTop: 6 }}>
-              <Text style={s.itemName}>{pol.provider_name}</Text>
-              <Text style={s.docNo}>Policy {pol.policy_number}</Text>
+          p.insurance.map((pol, i) => (
+            <View key={pol.id} style={{ marginTop: i === 0 ? 0 : 12 }}>
+              <View style={s.spread}>
+                <Text style={s.itemName}>{pol.provider_name}</Text>
+                <View style={[s.row, { gap: 6 }]}>
+                  {pol.status === 'pending' ? <Badge tone="warn">awaiting approval</Badge>
+                    : pol.status === 'rejected' ? <Badge tone="danger">not accepted</Badge>
+                      : pol.status === 'active' ? (expiryBadge(pol.valid_to) || <Badge tone="ok">active</Badge>)
+                        : <Badge>{pol.status}</Badge>}
+                </View>
+              </View>
+              <Text style={s.docNo}>
+                Policy {pol.policy_number}{pol.member_id ? ` · Member ${pol.member_id}` : ''}
+              </Text>
               <Text style={s.muted}>
                 {pol.coverage_type || 'Coverage'}
-                {pol.valid_to ? ` · valid to ${dateOnly(pol.valid_to)}` : ''}
+                {pol.valid_to ? ` · expires ${dateOnly(pol.valid_to)}` : ' · no expiry given'}
               </Text>
+              {pol.status === 'rejected' && pol.review_note ? (
+                <Text style={[s.muted, { color: c.danger, marginTop: 2 }]}>{pol.review_note}</Text>
+              ) : null}
+              {/* Only what the patient put in is theirs to correct. */}
+              {pol.submitted_by ? (
+                <Pressable
+                  onPress={() => setInsuranceForm({
+                    id: pol.id,
+                    insurance_provider_id: pol.insurance_provider_id,
+                    policy_number: pol.policy_number || '',
+                    member_id: pol.member_id || '',
+                    policy_holder_name: pol.policy_holder_name || '',
+                    valid_from: pol.valid_from || '',
+                    valid_to: pol.valid_to || '',
+                  })}
+                  style={{ marginTop: 4 }}
+                >
+                  <Text style={{ color: c.accentDark, fontWeight: '700', fontSize: 13 }}>Edit</Text>
+                </Pressable>
+              ) : null}
             </View>
           ))
         )}
@@ -395,12 +510,100 @@ export default function Profile() {
  * halves are being scanned, so the label is ink and bold now too; the value
  * stays a shade heavier so the pair still has a direction to it.
  */
-function Field({ label, value }) {
+function Field({ label, value, badge }) {
   return (
     <View style={[s.spread, { marginTop: 7 }]}>
       {/* The question carries the weight; the answer sits back. */}
       <Text style={{ color: c.ink, fontWeight: '700', fontSize: 14.5 }}>{label}</Text>
-      <Text style={{ color: c.body, fontWeight: '500', fontSize: 14.5 }}>{value}</Text>
+      <View style={[s.row, { gap: 8 }]}>
+        <Text style={{ color: c.body, fontWeight: '500', fontSize: 14.5 }}>{value}</Text>
+        {badge}
+      </View>
+    </View>
+  )
+}
+
+/**
+ * How a dated thing is doing — an ID card, an insurance policy. Said before
+ * it bites: an expired card is not identification, and an expiring one is
+ * the reminder to renew while it is still convenient.
+ */
+export function expiryBadge(date) {
+  if (!date) return null
+  const days = Math.ceil((new Date(String(date).slice(0, 10) + 'T00:00:00') - new Date()) / 86400000)
+  if (days < 0) return <Badge tone="danger">expired</Badge>
+  if (days <= 30) return <Badge tone="warn">{days === 0 ? 'expires today' : `${days} days left`}</Badge>
+  return null
+}
+
+/**
+ * The boxes a policy is entered through. The insurer is a row of chips
+ * rather than a dropdown — the list is four or five names, and chips need
+ * no native picker to look the same on both platforms.
+ */
+function InsuranceForm({ form, setForm, providers, busy, onSave }) {
+  const set = (key) => (v) => setForm({ ...form, [key]: v })
+  return (
+    <View>
+      <Text style={s.label}>Insurer</Text>
+      <View style={[s.row, { flexWrap: 'wrap', marginTop: 2 }]}>
+        {providers.map((prov) => {
+          const on = form.insurance_provider_id === prov.id
+          return (
+            <Pressable
+              key={prov.id}
+              disabled={Boolean(form.id)}
+              onPress={() => set('insurance_provider_id')(prov.id)}
+              style={{
+                paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999,
+                borderWidth: 1, marginRight: 8, marginTop: 6,
+                borderColor: on ? c.accentDark : c.border,
+                backgroundColor: on ? c.accentSoft : c.surface,
+                opacity: form.id && !on ? 0.5 : 1,
+              }}
+            >
+              <Text style={{
+                fontSize: 13.5, fontWeight: on ? '700' : '500',
+                color: on ? c.accentDark : c.body,
+              }}>
+                {prov.name}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+
+      {[
+        ['policy_number', 'Policy number', 'As printed on your card'],
+        ['member_id', 'Member ID (optional)', ''],
+        ['policy_holder_name', 'Policy holder (optional)', 'If the policy is in someone else\'s name'],
+        ['valid_from', 'Valid from (YYYY-MM-DD, optional)', '2026-01-01'],
+        ['valid_to', 'Expiry date (YYYY-MM-DD)', '2027-12-31'],
+      ].map(([key, label, placeholder]) => (
+        <View key={key}>
+          <Text style={s.label}>{label}</Text>
+          <TextInput
+            style={s.input}
+            value={form[key] ?? ''}
+            onChangeText={set(key)}
+            autoCapitalize={key === 'policy_holder_name' ? 'words' : 'characters'}
+            autoCorrect={false}
+            placeholder={placeholder}
+            placeholderTextColor={c.muted}
+          />
+        </View>
+      ))}
+
+      <Text style={[s.muted, { marginTop: 10, fontSize: 11.5 }]}>
+        The clinic checks this against your card before it is used for billing.
+      </Text>
+
+      <Pressable onPress={onSave} disabled={busy}
+                 style={[s.btn, { marginTop: 14 }, busy && s.btnDisabled]}>
+        <Text style={s.btnText}>
+          {busy ? 'Sending…' : form.id ? 'Save changes' : 'Send to clinic'}
+        </Text>
+      </Pressable>
     </View>
   )
 }

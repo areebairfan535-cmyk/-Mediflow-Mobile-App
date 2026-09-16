@@ -36,6 +36,12 @@ export default function SignUp() {
   const [mrn, setMrn] = useState('')
   const [dob, setDob] = useState('')
   const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  // The ID card: the number and the date it stops being one. Optional at
+  // sign-up — the clinic can add it at the desk — but asked for here so a
+  // patient who has the card to hand ends up with a complete profile.
+  const [nationalId, setNationalId] = useState('')
+  const [idExpiry, setIdExpiry] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -53,10 +59,11 @@ export default function SignUp() {
   // The server is the authority on the date; this only stops the obvious
   // typo reaching it as a 422.
   const badDate = dob !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(dob.trim())
+  const badIdExpiry = idExpiry !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(idExpiry.trim())
   const account = email.trim() !== '' && password.length >= 8 && confirm === password
   const ready = claiming
     ? account && mrn.trim() !== '' && dob.trim() !== '' && !badDate
-    : account && name.trim().length >= 2
+    : account && name.trim().length >= 2 && !badIdExpiry
 
   async function submit() {
     if (!ready || busy) return
@@ -67,7 +74,11 @@ export default function SignUp() {
         ? await api.claimChart(
             mrn.trim(), dob.trim(), name.trim() || undefined, email.trim(), password,
           )
-        : await api.register(name.trim(), email.trim(), password)
+        : await api.register(name.trim(), email.trim(), password, {
+            phone: phone.trim() || undefined,
+            national_id: nationalId.trim() || undefined,
+            national_id_expiry: idExpiry.trim() || undefined,
+          })
       const orgs = res.data.organizations || []
 
       // The clinic is attached, so the tokens that came back are worth keeping.
@@ -252,6 +263,51 @@ export default function SignUp() {
             placeholderTextColor={c.muted}
             returnKeyType="next"
           />
+
+          {!claiming && (
+            <>
+              <Text style={s.label}>Phone</Text>
+              <TextInput
+                style={s.input}
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                autoComplete="tel"
+                placeholder="03xx xxxxxxx"
+                placeholderTextColor={c.muted}
+                returnKeyType="next"
+              />
+
+              <Text style={s.label}>ID card number</Text>
+              <TextInput
+                style={s.input}
+                value={nationalId}
+                onChangeText={setNationalId}
+                keyboardType="numbers-and-punctuation"
+                autoCorrect={false}
+                placeholder="33100-1234567-1 (optional)"
+                placeholderTextColor={c.muted}
+                returnKeyType="next"
+              />
+
+              <Text style={s.label}>ID card expiry</Text>
+              <TextInput
+                style={[s.input, badIdExpiry && { borderColor: c.danger }]}
+                value={idExpiry}
+                onChangeText={setIdExpiry}
+                keyboardType="numbers-and-punctuation"
+                autoCorrect={false}
+                placeholder="YYYY-MM-DD (optional)"
+                placeholderTextColor={c.muted}
+                returnKeyType="next"
+              />
+              {badIdExpiry && (
+                <Text style={{ color: c.danger, fontSize: 12.5, marginTop: 4 }}>
+                  Write it as YYYY-MM-DD, for example 2031-05-20.
+                </Text>
+              )}
+            </>
+          )}
 
           <Text style={s.label}>Email</Text>
           <TextInput

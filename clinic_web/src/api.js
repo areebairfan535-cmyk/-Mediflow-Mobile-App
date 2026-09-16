@@ -261,6 +261,9 @@ export const api = {
   createPolicy: (patientId, body) =>
     request(`/patients/${patientId}/policies`, { method: 'POST', body }),
   updatePolicy: (id, body) => request(`/insurance/policies/${id}`, { method: 'PUT', body }),
+  // The clinic's answer to cover the patient entered from the app.
+  reviewPolicy: (id, decision, note) =>
+    request(`/insurance/policies/${id}/review`, { method: 'POST', body: { decision, note: note || undefined } }),
   eligibility: (invoiceId, policyId) =>
     request(`/invoices/${invoiceId}/eligibility${qs({ policy_id: policyId })}`),
   quote: (patient_id, amount) =>
