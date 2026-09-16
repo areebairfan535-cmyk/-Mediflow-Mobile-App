@@ -40,11 +40,12 @@ export default function Book() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
-  // The next 14 days, starting tomorrow — the clinic sets the hours, this just
-  // offers the days.
+  // Today and the next 13 days — the clinic sets the hours, this just offers
+  // the days. Today is first: a toothache does not wait for tomorrow, and the
+  // server already refuses any slot that has passed.
   const days = Array.from({ length: 14 }, (_, i) => {
     const d = new Date()
-    d.setDate(d.getDate() + i + 1)
+    d.setDate(d.getDate() + i)
     return d
   })
   const chosenDay = days[dayOffset - 1] ?? days[0]
@@ -224,7 +225,7 @@ export default function Book() {
                     fontSize: 11.5, fontWeight: '700',
                     color: picked ? 'rgba(255,255,255,0.75)' : c.muted,
                   }}>
-                    {d.toLocaleDateString(undefined, { weekday: 'short' })}
+                    {i === 0 ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'short' })}
                   </Text>
                   <Text style={{
                     fontSize: 16, fontWeight: '800', marginTop: 2,
