@@ -14,6 +14,24 @@ import { Card, Loading, ErrorBox, Badge } from '../components.jsx'
  */
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
+// Every half hour from 07:00 to 22:00. A dropdown, not a native time box:
+// the browser's time input wants hour, minute and AM/PM typed into three
+// invisible cells, and half the people who tried it could not get a value in.
+const TIMES = []
+for (let h = 7; h <= 22; h++) for (const m of ['00', '30']) TIMES.push(String(h).padStart(2, '0') + ':' + m)
+function label12(t) {
+  const [h, m] = t.split(':').map(Number)
+  return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + (h < 12 ? ' AM' : ' PM')
+}
+function TimeSelect({ value, onChange, disabled }) {
+  const options = TIMES.includes(value) ? TIMES : [value, ...TIMES]
+  return (
+    <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} style={{ width: 130 }}>
+      {options.map((t) => <option key={t} value={t}>{label12(t)}</option>)}
+    </select>
+  )
+}
+
 export default function Availability({ session }) {
   const [doctors, setDoctors] = useState([])
   const [doctorId, setDoctorId] = useState(null)
@@ -166,11 +184,11 @@ export default function Availability({ session }) {
                   <div className="hint" style={{ paddingTop: 6 }}>Off</div>
                 ) : rows.map((s) => (
                   <div className="row" key={s.i} style={{ gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                    <input type="time" value={s.start_time} disabled={!canEdit}
-                           onChange={(e) => setSlot(s.i, 'start_time', e.target.value)} style={{ width: 120 }} />
+                    <TimeSelect value={s.start_time} disabled={!canEdit}
+                                onChange={(v) => setSlot(s.i, 'start_time', v)} />
                     <span className="hint">to</span>
-                    <input type="time" value={s.end_time} disabled={!canEdit}
-                           onChange={(e) => setSlot(s.i, 'end_time', e.target.value)} style={{ width: 120 }} />
+                    <TimeSelect value={s.end_time} disabled={!canEdit}
+                                onChange={(v) => setSlot(s.i, 'end_time', v)} />
                     {canEdit && (
                       <button className="icon-btn" title="Remove" onClick={() => removeSlot(s.i)}>✕</button>
                     )}
