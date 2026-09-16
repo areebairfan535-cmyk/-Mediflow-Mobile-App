@@ -34,11 +34,25 @@ final class NotificationService extends Service
      * `title` and `body` are sprintf templates filled from the payload.
      */
     private const EVENTS = [
+        // A booking from the app is a request until the doctor says yes.
         'appointment.booked' => [
             'channels' => ['in_app', 'push'],
-            'title'    => 'Appointment confirmed',
-            'body'     => 'Your appointment with %s is on %s.',
+            'title'    => 'Appointment requested',
+            'body'     => 'Your appointment with %s on %s is waiting for the doctor to approve.',
             'keys'     => ['doctor', 'when'],
+        ],
+        'appointment.confirmed' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Appointment approved',
+            'body'     => '%s approved your appointment on %s. See you then.',
+            'keys'     => ['doctor', 'when'],
+        ],
+        // The clinic's owner keeps a view of what the doctors decided.
+        'appointment.confirmed.owner' => [
+            'channels' => ['in_app'],
+            'title'    => 'Appointment approved',
+            'body'     => '%s approved %s for %s.',
+            'keys'     => ['doctor', 'patient', 'when'],
         ],
         'appointment.reminder' => [
             'channels' => ['in_app', 'push', 'sms'],

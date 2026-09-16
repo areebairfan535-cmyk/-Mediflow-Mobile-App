@@ -17,6 +17,7 @@ import InvoiceDetail from './pages/InvoiceDetail.jsx'
 import Claims from './pages/Claims.jsx'
 import ClaimDetail from './pages/ClaimDetail.jsx'
 import Team from './pages/Team.jsx'
+import Availability from './pages/Availability.jsx'
 import DoctorSignup from './pages/DoctorSignup.jsx'
 
 /**
@@ -27,6 +28,7 @@ import DoctorSignup from './pages/DoctorSignup.jsx'
 const NAV = [
   { key: 'dashboard', label: 'My day', icon: '◧' },
   { key: 'appointments', label: 'Appointments', icon: '📅', perm: 'appointment.view' },
+  { key: 'availability', label: 'Availability', icon: '🕒', perm: 'schedule.manage' },
   { key: 'patients', label: 'Patients', icon: '🧑‍⚕️', perm: 'patient.view' },
   { key: 'search', label: 'Search', icon: '🔍', perm: 'patient.view' },
   { key: 'billing', label: 'Billing', icon: '🧾', perm: 'invoice.view' },
@@ -219,6 +221,7 @@ export default function App() {
           )}
           {route.page === 'claims' && <Claims session={session} go={go} />}
           {route.page === 'team' && <Team session={session} />}
+          {route.page === 'availability' && <Availability session={session} />}
           {route.page === 'claim' && (
             <ClaimDetail claimId={route.claimId} session={session} go={go} />
           )}

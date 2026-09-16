@@ -43,11 +43,18 @@ export default function Dashboard({ session, go }) {
 
   useEffect(() => { load() }, [])
 
-  async function setStatus(id, status) {
+  // Turning a request down needs a reason: it goes to the patient's phone.
+  async function decline(a) {
+    const reason = window.prompt(`Decline ${a.patient_name}'s request? Tell them why:`)
+    if (reason === null || reason.trim() === '') return
+    await setStatus(a.id, 'cancelled', reason.trim())
+  }
+
+  async function setStatus(id, status, reason) {
     setBusy(id)
     setNotice(null)
     try {
-      await api.setAppointmentStatus(id, status)
+      await api.setAppointmentStatus(id, status, reason)
       await load()
     } catch (error) {
       setNotice({ ok: false, message: error.message })
@@ -268,12 +275,18 @@ export default function Dashboard({ session, go }) {
               </div>
 
               <AppointmentType type={a.type} />
-              <Badge>{a.status.replace(/_/g, ' ')}</Badge>
+              <Badge tone={a.status === 'booked' ? 'warn' : undefined}>{a.status === 'booked' ? 'awaiting approval' : a.status.replace(/_/g, ' ')}</Badge>
 
               <div className="slot-actions">
+                {/* A booking from the app is a request until the doctor says
+                    yes; Approve is that yes, Decline the polite no. */}
                 {a.status === 'booked' && (
-                  <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
-                          onClick={() => setStatus(a.id, 'confirmed')}>Confirm</button>
+                  <>
+                    <button className="btn btn-sm" disabled={busy === a.id}
+                            onClick={() => setStatus(a.id, 'confirmed')}>Approve</button>
+                    <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
+                            onClick={() => decline(a)}>Decline</button>
+                  </>
                 )}
                 {(a.status === 'booked' || a.status === 'confirmed') && (
                   <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
@@ -325,11 +338,15 @@ export default function Dashboard({ session, go }) {
                   <div className="why">{a.reason || 'No reason given'}</div>
                 </div>
                 <AppointmentType type={a.type} />
-                <Badge>{a.status}</Badge>
+                <Badge tone={a.status === 'booked' ? 'warn' : undefined}>{a.status === 'booked' ? 'awaiting approval' : a.status}</Badge>
                 <div className="slot-actions">
                   {a.status === 'booked' && (
-                    <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
-                            onClick={() => setStatus(a.id, 'confirmed')}>Confirm</button>
+                    <>
+                      <button className="btn btn-sm" disabled={busy === a.id}
+                              onClick={() => setStatus(a.id, 'confirmed')}>Approve</button>
+                      <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
+                              onClick={() => decline(a)}>Decline</button>
+                    </>
                   )}
                   <button className="btn btn-sm btn-secondary"
                           onClick={() => go('chart', { patientId: a.patient_id })}>

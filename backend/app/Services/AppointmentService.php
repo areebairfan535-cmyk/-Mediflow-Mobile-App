@@ -297,6 +297,16 @@ final class AppointmentService extends Service
             if ($event !== 'appointment.reminder' && $doctorUser > 0 && $doctorUser !== $this->actorId) {
                 $notifications->notifyUser($doctorUser, $event . '.doctor', $payload);
             }
+
+            // The owner hears when a doctor approves a booking — unless the
+            // owner is the doctor, who already knows.
+            if ($event === 'appointment.confirmed') {
+                foreach ((new RbacService())->ownersOf($this->requireOrganization()) as $ownerId) {
+                    if ($ownerId !== $this->actorId) {
+                        $notifications->notifyUser($ownerId, 'appointment.confirmed.owner', $payload);
+                    }
+                }
+            }
         } catch (\Throwable $e) {
             error_log('[notify] appointment notification failed: ' . $e->getMessage());
         }
@@ -378,6 +388,11 @@ final class AppointmentService extends Service
 
         if ($status === 'cancelled') {
             $this->notify($after, 'appointment.cancelled');
+        }
+        // The doctor's yes. A booking from the app is a request until this;
+        // the patient is told the moment it becomes a promise.
+        if ($status === 'confirmed') {
+            $this->notify($after, 'appointment.confirmed');
         }
 
         return ['before' => $before, 'after' => $after];

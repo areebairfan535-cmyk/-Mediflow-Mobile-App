@@ -114,11 +114,13 @@ export default function Appointments({ session, go }) {
                   </div>
                 </div>
                 <AppointmentType type={a.type} />
-                <Badge>{a.status.replace(/_/g, ' ')}</Badge>
+                <Badge tone={a.status === 'booked' ? 'warn' : undefined}>
+                  {a.status === 'booked' ? 'awaiting approval' : a.status.replace(/_/g, ' ')}
+                </Badge>
                 <div className="slot-actions">
                   {a.status === 'booked' && (
-                    <button className="btn btn-sm btn-secondary"
-                            onClick={() => setStatus(a.id, 'confirmed')}>Confirm</button>
+                    <button className="btn btn-sm"
+                            onClick={() => setStatus(a.id, 'confirmed')}>Approve</button>
                   )}
                   {(a.status === 'booked' || a.status === 'confirmed') && (
                     <>

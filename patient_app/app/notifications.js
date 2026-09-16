@@ -10,6 +10,7 @@ const ICON = {
   'appointment.reminder': '⏰',
   'appointment.cancelled': '❌',
   'appointment.rescheduled': '🔁',
+  'appointment.confirmed': '✅',
   'insurance.approved': '🛡',
   'insurance.rejected': '🛡',
   'prescription.issued': '💊',

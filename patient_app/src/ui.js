@@ -20,11 +20,17 @@ export const c = {
 }
 
 const TONE = {
-  active: 'ok', booked: 'accent', confirmed: 'accent', arrived: 'warn',
+  active: 'ok', booked: 'warn', confirmed: 'ok', arrived: 'warn',
   in_consultation: 'warn', completed: 'ok', cancelled: 'danger', no_show: 'danger',
   issued: 'accent', partially_paid: 'warn', paid: 'ok', overdue: 'danger', refunded: 'warn',
   ordered: 'accent', processing: 'warn',
 }
+
+/**
+ * What a status is called on a patient's phone. 'booked' is the clinic's word
+ * for a request the doctor has not answered yet; 'confirmed' is the doctor's yes.
+ */
+const LABEL = { booked: 'awaiting doctor approval', confirmed: 'approved' }
 
 export function Badge({ children, tone }) {
   const key = String(children ?? '').toLowerCase().replace(/\s/g, '_')
@@ -40,7 +46,7 @@ export function Badge({ children, tone }) {
   return (
     <View style={[s.badge, { backgroundColor: palette[0] }]}>
       <Text style={[s.badgeText, { color: palette[1] }]}>
-        {String(children).replace(/_/g, ' ')}
+        {LABEL[key] || String(children).replace(/_/g, ' ')}
       </Text>
     </View>
   )

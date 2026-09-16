@@ -183,6 +183,7 @@ export const api = {
   doctors: (params) => request(`/doctors${qs(params)}`),
   doctor: (id) => request(`/doctors/${id}`),
   doctorDashboard: () => request('/doctors/dashboard'),
+  updateDoctor: (id, body) => request(`/doctors/${id}`, { method: 'PUT', body }),
   schedule: (id) => request(`/doctors/${id}/schedule`),
   saveSchedule: (id, slots) => request(`/doctors/${id}/schedule`, { method: 'PUT', body: { slots } }),
   availableSlots: (id, date) => request(`/doctors/${id}/available-slots${qs({ date })}`),
