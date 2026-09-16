@@ -8,6 +8,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5174,
+    // Reachable from a phone on the same Wi-Fi, so the clinic side can be
+    // shown on a handset next to the patient app.
+    host: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',
