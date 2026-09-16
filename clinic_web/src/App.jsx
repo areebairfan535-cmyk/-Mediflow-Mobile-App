@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, tokens } from './api.js'
+import { api, tokens, onSessionEnded } from './api.js'
 import { Loading, setClinicTimeZone } from './components.jsx'
 import { NotificationBell } from './NotificationBell.jsx'
 import Login from './pages/Login.jsx'
@@ -87,6 +87,11 @@ export default function App() {
   }, [])
 
   useEffect(() => { bootstrap() }, [bootstrap])
+
+  // The session can end while any page is open — an expired token, a
+  // revoked one. Whatever page noticed shows its message; this shows the
+  // login instead of leaving a dead app on screen.
+  useEffect(() => onSessionEnded(() => { setSession(null); setRoute({ page: 'dashboard' }) }), [])
 
   const go = useCallback((page, params = {}) => {
     setRoute({ page, ...params })
