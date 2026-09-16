@@ -309,7 +309,10 @@ export default function Dashboard({ session, go }) {
                   <button className="btn btn-sm" disabled={busy === a.id}
                           onClick={() => setStatus(a.id, 'confirmed')}>Lift hold</button>
                 )}
-                {(a.status === 'booked' || a.status === 'confirmed' || a.status === 'on_hold') && (
+                {/* Arrived is the front desk's word — the patient gave their name
+                    at the counter. A doctor's day skips it: Start consultation
+                    marks the patient arrived on its way in. */}
+                {!isDoctor && (a.status === 'booked' || a.status === 'confirmed' || a.status === 'on_hold') && (
                   <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
                           onClick={() => setStatus(a.id, 'arrived')}>Arrived</button>
                 )}

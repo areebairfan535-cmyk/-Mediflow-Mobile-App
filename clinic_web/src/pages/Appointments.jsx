@@ -136,8 +136,11 @@ export default function Appointments({ session, go }) {
                   )}
                   {(a.status === 'booked' || a.status === 'confirmed' || a.status === 'on_hold') && (
                     <>
-                      <button className="btn btn-sm btn-secondary"
-                              onClick={() => setStatus(a.id, 'arrived')}>Arrived</button>
+                      {/* Arrived is the front desk's word, not the doctor's. */}
+                      {session.role !== 'doctor' && (
+                        <button className="btn btn-sm btn-secondary"
+                                onClick={() => setStatus(a.id, 'arrived')}>Arrived</button>
+                      )}
                       {/* A hold keeps the slot and says why; the patient reads
                           the reason before setting out. Cancel burns both. */}
                       {a.status === 'on_hold' ? (
