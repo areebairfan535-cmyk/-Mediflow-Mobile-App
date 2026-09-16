@@ -11,6 +11,8 @@ const ICON = {
   'appointment.cancelled': '❌',
   'appointment.rescheduled': '🔁',
   'appointment.confirmed': '✅',
+  'appointment.on_hold': '⏸',
+  'appointment.hold_lifted': '▶',
   'lab.tests_recommended': '🧪',
   'insurance.approved': '🛡',
   'insurance.rejected': '🛡',

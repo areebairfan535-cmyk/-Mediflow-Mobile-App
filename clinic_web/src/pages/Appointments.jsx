@@ -14,7 +14,7 @@ import {
  * them, and what never happened sits at the bottom.
  */
 const RANK = {
-  in_consultation: 0, arrived: 0, confirmed: 0, booked: 0,
+  in_consultation: 0, arrived: 0, confirmed: 0, booked: 0, on_hold: 0,
   completed: 1,
   cancelled: 2, no_show: 2,
 }
@@ -47,10 +47,17 @@ export default function Appointments({ session, go }) {
 
   useEffect(() => { load() }, [date, doctorId])
 
-  async function setStatus(id, status) {
+  // The reason is the whole point of a hold — the patient reads it.
+  async function hold(a) {
+    const reason = window.prompt(`Put ${a.patient_name}'s appointment on hold? Tell them why:`)
+    if (reason === null || reason.trim() === '') return
+    await setStatus(a.id, 'on_hold', reason.trim())
+  }
+
+  async function setStatus(id, status, reason) {
     setNotice(null)
     try {
-      await api.setAppointmentStatus(id, status)
+      await api.setAppointmentStatus(id, status, reason)
       await load()
     } catch (error) {
       setNotice({ ok: false, message: error.message })
@@ -112,9 +119,14 @@ export default function Appointments({ session, go }) {
                     {a.doctor_name} · {a.duration_minutes} min
                     {a.reason ? ` · ${a.reason}` : ''}
                   </div>
+                  {a.status === 'on_hold' && a.hold_reason && (
+                    <div className="why" style={{ color: 'var(--danger, #b3261e)' }}>
+                      On hold: {a.hold_reason}
+                    </div>
+                  )}
                 </div>
                 <AppointmentType type={a.type} />
-                <Badge tone={a.status === 'booked' ? 'warn' : undefined}>
+                <Badge tone={a.status === 'booked' ? 'warn' : a.status === 'on_hold' ? 'danger' : undefined}>
                   {a.status === 'booked' ? 'awaiting approval' : a.status.replace(/_/g, ' ')}
                 </Badge>
                 <div className="slot-actions">
@@ -122,10 +134,18 @@ export default function Appointments({ session, go }) {
                     <button className="btn btn-sm"
                             onClick={() => setStatus(a.id, 'confirmed')}>Approve</button>
                   )}
-                  {(a.status === 'booked' || a.status === 'confirmed') && (
+                  {(a.status === 'booked' || a.status === 'confirmed' || a.status === 'on_hold') && (
                     <>
                       <button className="btn btn-sm btn-secondary"
                               onClick={() => setStatus(a.id, 'arrived')}>Arrived</button>
+                      {/* A hold keeps the slot and says why; the patient reads
+                          the reason before setting out. Cancel burns both. */}
+                      {a.status === 'on_hold' ? (
+                        <button className="btn btn-sm btn-secondary"
+                                onClick={() => setStatus(a.id, 'confirmed')}>Lift hold</button>
+                      ) : (
+                        <button className="btn btn-sm btn-secondary" onClick={() => hold(a)}>Hold</button>
+                      )}
                       <button className="btn btn-sm btn-secondary"
                               onClick={() => setStatus(a.id, 'cancelled')}>Cancel</button>
                     </>

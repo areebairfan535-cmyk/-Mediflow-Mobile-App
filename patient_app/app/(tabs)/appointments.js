@@ -6,7 +6,7 @@ import {
   AppointmentType, Badge, Card, EmptyState, ErrorBox, Loading, c, s, when,
 } from '../../src/ui'
 
-const CANCELLABLE = ['booked', 'confirmed']
+const CANCELLABLE = ['booked', 'confirmed', 'on_hold']
 
 export default function Appointments() {
   const router = useRouter()
@@ -131,6 +131,17 @@ export default function Appointments() {
             {/* A room number on an online visit would send the patient to it. */}
             {a.room && a.type !== 'teleconsult'
               ? <Text style={s.muted}>Room {a.room}</Text> : null}
+            {/* The clinic's reason for a hold, in front of the patient before
+                they set out. Read this, then wait for the next message. */}
+            {a.status === 'on_hold' && a.hold_reason ? (
+              <View style={{
+                marginTop: 8, padding: 10, borderRadius: 10,
+                backgroundColor: c.dangerSoft, borderWidth: 1, borderColor: 'rgba(193,54,47,0.25)',
+              }}>
+                <Text style={{ fontWeight: '700', color: c.danger, fontSize: 13 }}>On hold — please wait before coming in</Text>
+                <Text style={{ color: c.danger, marginTop: 3, fontSize: 13.5 }}>{a.hold_reason}</Text>
+              </View>
+            ) : null}
             {a.cancelled_reason ? (
               <Text style={[s.muted, { color: c.danger }]}>{a.cancelled_reason}</Text>
             ) : null}

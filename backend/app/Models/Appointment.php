@@ -16,7 +16,7 @@ final class Appointment extends Model
     {
         return [
             'patient_id', 'doctor_id', 'scheduled_at', 'duration_minutes', 'type',
-            'status', 'reason', 'cancelled_reason', 'rescheduled_from', 'booked_by',
+            'status', 'reason', 'cancelled_reason', 'hold_reason', 'rescheduled_from', 'booked_by',
             'created_by', 'updated_by', 'created_at', 'updated_at',
         ];
     }

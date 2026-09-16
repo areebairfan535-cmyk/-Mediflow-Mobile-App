@@ -20,7 +20,7 @@ export const c = {
 }
 
 const TONE = {
-  active: 'ok', booked: 'warn', confirmed: 'ok', arrived: 'warn',
+  active: 'ok', booked: 'warn', confirmed: 'ok', on_hold: 'danger', arrived: 'warn',
   in_consultation: 'warn', completed: 'ok', cancelled: 'danger', no_show: 'danger',
   issued: 'accent', partially_paid: 'warn', paid: 'ok', overdue: 'danger', refunded: 'warn',
   ordered: 'accent', processing: 'warn',
@@ -30,7 +30,7 @@ const TONE = {
  * What a status is called on a patient's phone. 'booked' is the clinic's word
  * for a request the doctor has not answered yet; 'confirmed' is the doctor's yes.
  */
-const LABEL = { booked: 'awaiting doctor approval', confirmed: 'approved' }
+const LABEL = { booked: 'awaiting doctor approval', confirmed: 'approved', on_hold: 'on hold' }
 
 export function Badge({ children, tone }) {
   const key = String(children ?? '').toLowerCase().replace(/\s/g, '_')

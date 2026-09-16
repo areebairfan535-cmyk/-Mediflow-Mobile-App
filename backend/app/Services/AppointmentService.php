@@ -26,8 +26,11 @@ final class AppointmentService extends Service
 {
     /** Which statuses each status may move to. */
     private const TRANSITIONS = [
-        'booked'          => ['confirmed', 'arrived', 'cancelled', 'no_show'],
-        'confirmed'       => ['arrived', 'cancelled', 'no_show'],
+        'booked'          => ['confirmed', 'on_hold', 'arrived', 'cancelled', 'no_show'],
+        'confirmed'       => ['on_hold', 'arrived', 'cancelled', 'no_show'],
+        // A hold keeps the slot. Lifting it lands on confirmed — the clinic
+        // has looked at it twice by then, which is what confirmed means.
+        'on_hold'         => ['confirmed', 'arrived', 'cancelled', 'no_show'],
         'arrived'         => ['in_consultation', 'cancelled', 'no_show'],
         'in_consultation' => ['completed', 'cancelled'],
         'completed'       => [],
@@ -108,7 +111,7 @@ final class AppointmentService extends Service
 
         return array_values(array_filter(
             $rows,
-            static fn (array $a): bool => in_array($a['status'], ['booked', 'confirmed'], true),
+            static fn (array $a): bool => in_array($a['status'], ['booked', 'confirmed', 'on_hold'], true),
         ));
     }
 
@@ -285,7 +288,8 @@ final class AppointmentService extends Service
                 'patient'      => trim(($patient['first_name'] ?? '') . ' ' . ($patient['last_name'] ?? ''))
                                   ?: 'A patient',
                 'when'         => $when,
-                'reason'       => $appointment['cancelled_reason'] ?? '',
+                // A reason that ends in a full stop would double it in the template.
+                'reason'       => rtrim((string) ($extra['hold_reason'] ?? $appointment['cancelled_reason'] ?? ''), '.'),
                 'subject_type' => 'appointment',
                 'subject_id'   => (int) $appointment['id'],
             ] + $extra;
@@ -383,16 +387,31 @@ final class AppointmentService extends Service
         if ($status === 'cancelled') {
             $patch['cancelled_reason'] = $reason;
         }
+        if ($status === 'on_hold') {
+            // The reason is the point of a hold: the patient reads it before
+            // deciding whether to set out. Without one it is just silence.
+            if (trim((string) $reason) === '') {
+                throw new ValidationException(['reason' => ['Say why it is on hold — the patient will read it.']]);
+            }
+            $patch['hold_reason'] = trim((string) $reason);
+        }
+        if ($from === 'on_hold' && $status !== 'on_hold') {
+            $patch['hold_reason'] = null;
+        }
 
         $after = $repo->update($id, $this->stampUpdate($patch));
 
         if ($status === 'cancelled') {
             $this->notify($after, 'appointment.cancelled');
         }
+        if ($status === 'on_hold') {
+            $this->notify($after, 'appointment.on_hold', ['hold_reason' => $patch['hold_reason']]);
+        }
         // The doctor's yes. A booking from the app is a request until this;
-        // the patient is told the moment it becomes a promise.
+        // the patient is told the moment it becomes a promise. Lifting a hold
+        // lands here too, and is said as that.
         if ($status === 'confirmed') {
-            $this->notify($after, 'appointment.confirmed');
+            $this->notify($after, $from === 'on_hold' ? 'appointment.hold_lifted' : 'appointment.confirmed');
         }
 
         return ['before' => $before, 'after' => $after];

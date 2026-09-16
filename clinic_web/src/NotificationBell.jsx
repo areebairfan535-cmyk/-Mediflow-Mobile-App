@@ -22,6 +22,8 @@ const ICONS = {
   'appointment.booked.doctor':      '📅',
   'appointment.rescheduled.doctor': '🔁',
   'appointment.cancelled.doctor':   '✖',
+  'appointment.on_hold.doctor':     '⏸',
+  'appointment.hold_lifted.doctor': '▶',
   'insurance.submitted':            '🛡',
   'doctor.applied':                 '👥',
   'lab.completed.owner':            '🧪',

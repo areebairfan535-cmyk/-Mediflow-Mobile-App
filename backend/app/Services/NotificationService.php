@@ -47,6 +47,33 @@ final class NotificationService extends Service
             'body'     => '%s approved your appointment on %s. See you then.',
             'keys'     => ['doctor', 'when'],
         ],
+        // Put on hold by the clinic — said before the patient sets out, with
+        // the reason in front of them. Lifted is its own message: "confirmed"
+        // after a hold would read as if nothing had happened.
+        'appointment.on_hold' => [
+            'channels' => ['in_app', 'push', 'sms'],
+            'title'    => 'Appointment on hold',
+            'body'     => 'Your appointment with %s on %s is on hold. Reason: %s. Please wait for an update before coming in.',
+            'keys'     => ['doctor', 'when', 'reason'],
+        ],
+        'appointment.hold_lifted' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Appointment back on',
+            'body'     => 'The hold on your appointment with %s on %s has been lifted. It is going ahead as planned.',
+            'keys'     => ['doctor', 'when'],
+        ],
+        'appointment.on_hold.doctor' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Appointment on hold',
+            'body'     => '%s\'s appointment on %s was put on hold. Reason: %s',
+            'keys'     => ['patient', 'when', 'reason'],
+        ],
+        'appointment.hold_lifted.doctor' => [
+            'channels' => ['in_app'],
+            'title'    => 'Hold lifted',
+            'body'     => '%s\'s appointment on %s is back on.',
+            'keys'     => ['patient', 'when'],
+        ],
         // The clinic's owner keeps a view of what the doctors decided.
         'appointment.confirmed.owner' => [
             'channels' => ['in_app'],

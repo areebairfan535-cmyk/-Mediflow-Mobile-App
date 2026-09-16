@@ -89,7 +89,7 @@ final class AppointmentController extends Controller
     public function changeStatus(Request $request): never
     {
         $data = $this->validate($request, [
-            'status' => 'required|in:confirmed,arrived,in_consultation,completed,cancelled,no_show',
+            'status' => 'required|in:confirmed,on_hold,arrived,in_consultation,completed,cancelled,no_show',
             'reason' => 'nullable|string|max:500',
         ]);
 

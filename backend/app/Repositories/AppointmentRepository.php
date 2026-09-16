@@ -12,7 +12,7 @@ final class AppointmentRepository extends Repository
     protected string $model = Appointment::class;
 
     /** Statuses that still occupy the doctor's calendar. */
-    private const BLOCKING = ['booked', 'confirmed', 'arrived', 'in_consultation'];
+    private const BLOCKING = ['booked', 'confirmed', 'on_hold', 'arrived', 'in_consultation'];
 
     /**
      * Does this booking overlap an existing one for the same doctor?

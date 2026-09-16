@@ -43,6 +43,14 @@ export default function Dashboard({ session, go }) {
 
   useEffect(() => { load() }, [])
 
+  // A hold keeps the slot and says why; the patient reads the reason
+  // before setting out.
+  async function hold(a) {
+    const reason = window.prompt(`Put ${a.patient_name}'s appointment on hold? Tell them why:`)
+    if (reason === null || reason.trim() === '') return
+    await setStatus(a.id, 'on_hold', reason.trim())
+  }
+
   // Turning a request down needs a reason: it goes to the patient's phone.
   async function decline(a) {
     const reason = window.prompt(`Decline ${a.patient_name}'s request? Tell them why:`)
@@ -265,6 +273,11 @@ export default function Dashboard({ session, go }) {
                 {/* Why it was cancelled, on the row it belongs to. The count
                     above says how many; a doctor looking at a gap in their
                     morning wants to know which one and what happened. */}
+                {a.status === 'on_hold' && a.hold_reason && (
+                  <div className="why" style={{ color: 'var(--danger, #b3261e)' }}>
+                    On hold: {a.hold_reason}
+                  </div>
+                )}
                 {['cancelled', 'no_show'].includes(a.status) && (
                   <div className="why" style={{ color: 'var(--danger, #b3261e)' }}>
                     {a.status === 'no_show'
@@ -275,7 +288,7 @@ export default function Dashboard({ session, go }) {
               </div>
 
               <AppointmentType type={a.type} />
-              <Badge tone={a.status === 'booked' ? 'warn' : undefined}>{a.status === 'booked' ? 'awaiting approval' : a.status.replace(/_/g, ' ')}</Badge>
+              <Badge tone={a.status === 'booked' ? 'warn' : a.status === 'on_hold' ? 'danger' : undefined}>{a.status === 'booked' ? 'awaiting approval' : a.status.replace(/_/g, ' ')}</Badge>
 
               <div className="slot-actions">
                 {/* A booking from the app is a request until the doctor says
@@ -288,7 +301,15 @@ export default function Dashboard({ session, go }) {
                             onClick={() => decline(a)}>Decline</button>
                   </>
                 )}
-                {(a.status === 'booked' || a.status === 'confirmed') && (
+                {a.status === 'confirmed' && (
+                  <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
+                          onClick={() => hold(a)}>Hold</button>
+                )}
+                {a.status === 'on_hold' && (
+                  <button className="btn btn-sm" disabled={busy === a.id}
+                          onClick={() => setStatus(a.id, 'confirmed')}>Lift hold</button>
+                )}
+                {(a.status === 'booked' || a.status === 'confirmed' || a.status === 'on_hold') && (
                   <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
                           onClick={() => setStatus(a.id, 'arrived')}>Arrived</button>
                 )}
@@ -338,7 +359,7 @@ export default function Dashboard({ session, go }) {
                   <div className="why">{a.reason || 'No reason given'}</div>
                 </div>
                 <AppointmentType type={a.type} />
-                <Badge tone={a.status === 'booked' ? 'warn' : undefined}>{a.status === 'booked' ? 'awaiting approval' : a.status}</Badge>
+                <Badge tone={a.status === 'booked' ? 'warn' : a.status === 'on_hold' ? 'danger' : undefined}>{a.status === 'booked' ? 'awaiting approval' : a.status.replace(/_/g, ' ')}</Badge>
                 <div className="slot-actions">
                   {a.status === 'booked' && (
                     <>
@@ -347,6 +368,14 @@ export default function Dashboard({ session, go }) {
                       <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
                               onClick={() => decline(a)}>Decline</button>
                     </>
+                  )}
+                  {a.status === 'confirmed' && (
+                    <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
+                            onClick={() => hold(a)}>Hold</button>
+                  )}
+                  {a.status === 'on_hold' && (
+                    <button className="btn btn-sm" disabled={busy === a.id}
+                            onClick={() => setStatus(a.id, 'confirmed')}>Lift hold</button>
                   )}
                   <button className="btn btn-sm btn-secondary"
                           onClick={() => go('chart', { patientId: a.patient_id })}>

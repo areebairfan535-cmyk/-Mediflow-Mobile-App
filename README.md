@@ -508,6 +508,9 @@ POST   /appointments
 GET    /appointments/{id}
 PUT    /appointments/{id}/reschedule
 PUT    /appointments/{id}/status
+                                            on_hold needs a reason; the patient reads
+                                            it before setting out, and is told when
+                                            the hold is lifted
 
 GET    /encounters
 POST   /encounters                            from an appointment, or a walk-in
