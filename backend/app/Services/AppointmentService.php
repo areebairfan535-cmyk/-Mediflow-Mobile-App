@@ -91,6 +91,27 @@ final class AppointmentService extends Service
         return $this->appointments()->calendar($filters, $this->timezone());
     }
 
+    /**
+     * A doctor's live bookings from tomorrow onward — booked and confirmed,
+     * not the cancelled or finished ones, which are history rather than plans.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function upcomingFor(int $doctorId, int $days): array
+    {
+        $today = new \DateTimeImmutable($this->clinicToday(), $this->timezone());
+        $rows  = $this->appointments()->calendar([
+            'doctor_id' => $doctorId,
+            'from'      => $today->modify('+1 day')->format('Y-m-d'),
+            'to'        => $today->modify('+' . $days . ' days')->format('Y-m-d'),
+        ], $this->timezone());
+
+        return array_values(array_filter(
+            $rows,
+            static fn (array $a): bool => in_array($a['status'], ['booked', 'confirmed'], true),
+        ));
+    }
+
     /** @return array<string,mixed> */
     public function show(int $id): array
     {

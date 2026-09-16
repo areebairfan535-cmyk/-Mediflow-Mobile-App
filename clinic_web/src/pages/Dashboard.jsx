@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api.js'
 import {
   AppointmentType, Card, Stat, Badge, Loading, Empty, ErrorBox,
-  timeOf, todayISO, minutesSince, lateness,
+  timeOf, dateOf, todayISO, minutesSince, lateness,
 } from '../components.jsx'
 import { AiStatusLine } from '../ai.jsx'
 import { money } from './Billing.jsx'
@@ -235,7 +235,11 @@ export default function Dashboard({ session, go }) {
                 : filter === 'cancelled' ? 'Nothing cancelled today'
                   : 'Nothing booked for today'
             }
-            hint={filter === 'all' ? 'Use the Appointments tab to book one.' : undefined}
+            hint={
+              filter !== 'all' ? undefined
+                : (state.upcoming || []).length > 0 ? 'Your next bookings are listed below.'
+                  : 'Use the Appointments tab to book one.'
+            }
           />
         ) : (
           shown.map((a) => (
@@ -300,6 +304,43 @@ export default function Dashboard({ session, go }) {
           ))
         )}
       </Card>
+
+      {/* What is booked after today. A doctor with nothing until Thursday
+          should see Thursday here, not an empty day and a hint to go looking.
+          Only live bookings — the finished and cancelled ones are history. */}
+      {isDoctor && (state.upcoming || []).length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <Card title={`Coming up · ${state.upcoming.length} in the next two weeks`} bodyless>
+            {state.upcoming.map((a) => (
+              <div className="slot-row" key={a.id}>
+                <div className="slot-time" style={{ minWidth: 118 }}>
+                  {dateOf(a.scheduled_at)}<br />
+                  <span className="hint">{timeOf(a.scheduled_at)}</span>
+                </div>
+                <div className="slot-main">
+                  <div className="who">
+                    {a.patient_name}{' '}
+                    <span className="hint mono">{a.mrn}</span>
+                  </div>
+                  <div className="why">{a.reason || 'No reason given'}</div>
+                </div>
+                <AppointmentType type={a.type} />
+                <Badge>{a.status}</Badge>
+                <div className="slot-actions">
+                  {a.status === 'booked' && (
+                    <button className="btn btn-sm btn-secondary" disabled={busy === a.id}
+                            onClick={() => setStatus(a.id, 'confirmed')}>Confirm</button>
+                  )}
+                  <button className="btn btn-sm btn-secondary"
+                          onClick={() => go('chart', { patientId: a.patient_id })}>
+                    Chart
+                  </button>
+                </div>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
 
       {/* §9: only renders when a provider is actually configured. */}
       <div style={{ marginTop: 14 }}>

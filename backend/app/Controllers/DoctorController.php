@@ -210,6 +210,10 @@ final class DoctorController extends Controller
                 'doctor_id' => (int) $doctor['id'],
                 'date'      => $service->clinicToday(),
             ]),
+            // What is booked after today, so a quiet morning is not a blank
+            // screen: a doctor with nothing until Thursday should see
+            // Thursday, not be told to go and look for it.
+            'upcoming'     => $service->upcomingFor((int) $doctor['id'], 14),
             'open_encounter' => (new \App\Repositories\EncounterRepository())
                 ->forOrganization($request->organizationId())
                 ->openForDoctor((int) $doctor['id']),
