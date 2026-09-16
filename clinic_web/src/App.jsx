@@ -16,6 +16,8 @@ import Billing from './pages/Billing.jsx'
 import InvoiceDetail from './pages/InvoiceDetail.jsx'
 import Claims from './pages/Claims.jsx'
 import ClaimDetail from './pages/ClaimDetail.jsx'
+import Team from './pages/Team.jsx'
+import DoctorSignup from './pages/DoctorSignup.jsx'
 
 /**
  * Nav is built from the permission list the API returns, so a receptionist and
@@ -30,12 +32,14 @@ const NAV = [
   { key: 'billing', label: 'Billing', icon: '🧾', perm: 'invoice.view' },
   { key: 'services', label: 'Services', icon: '🏷', perm: 'service.view' },
   { key: 'claims', label: 'Claims', icon: '🛡', perm: 'claim.view' },
+  { key: 'team', label: 'Team', icon: '👥', perm: 'member.view' },
 ]
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [booting, setBooting] = useState(true)
   const [forgot, setForgot] = useState(false)
+  const [doctorSignup, setDoctorSignup] = useState(false)
   const [route, setRoute] = useState({ page: 'dashboard' })
 
   const bootstrap = useCallback(async () => {
@@ -64,6 +68,8 @@ export default function App() {
         user: data.user,
         organization: data.active_organization || null,
         organizations: data.organizations || [],
+        // Clinics this person applied to and is still waiting on (§2).
+        applications: data.applications || [],
         role: data.role || null,
         permissions,
         can: (slug) => Boolean(data.user?.is_platform_admin) || permissions.includes(slug),
@@ -100,12 +106,38 @@ export default function App() {
 
   if (!session) {
     if (forgot) return <ForgotPassword onDone={() => setForgot(false)} />
+    if (doctorSignup) {
+      return <DoctorSignup onDone={() => setDoctorSignup(false)} onBack={() => setDoctorSignup(false)} />
+    }
 
     return (
       <Login
         onSignedIn={async () => { setBooting(true); await bootstrap() }}
         onForgot={() => setForgot(true)}
+        onDoctorSignup={() => setDoctorSignup(true)}
       />
+    )
+  }
+
+  // Signed in, but no clinic has opened its door yet: an application that
+  // is still pending, or one that was refused. Say which, and offer the way
+  // out — the tabs would only 403.
+  if (!session.organization && session.organizations.length === 0) {
+    const app = session.applications[0]
+    return (
+      <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24 }}>
+        <div className="auth-card" style={{ maxWidth: 440 }}>
+          <h2>{app?.status === 'rejected' ? 'Application not accepted' : 'Waiting for approval'}</h2>
+          <p className="hint" style={{ marginBottom: 16 }}>
+            {app
+              ? app.status === 'rejected'
+                ? `${app.organization_name} did not accept your application. Check your notifications for the reason, or contact the clinic.`
+                : `Your application to ${app.organization_name} is with the clinic owner. You will get a notification when it is approved — then log in again.`
+              : 'This account is not on the team at any clinic yet.'}
+          </p>
+          <button className="btn btn-block btn-secondary" onClick={signOut}>Sign out</button>
+        </div>
+      </div>
     )
   }
 
@@ -186,6 +218,7 @@ export default function App() {
             <InvoiceDetail invoiceId={route.invoiceId} session={session} go={go} />
           )}
           {route.page === 'claims' && <Claims session={session} go={go} />}
+          {route.page === 'team' && <Team session={session} />}
           {route.page === 'claim' && (
             <ClaimDetail claimId={route.claimId} session={session} go={go} />
           )}

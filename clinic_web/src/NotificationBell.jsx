@@ -23,6 +23,9 @@ const ICONS = {
   'appointment.rescheduled.doctor': '🔁',
   'appointment.cancelled.doctor':   '✖',
   'insurance.submitted':            '🛡',
+  'doctor.applied':                 '👥',
+  'membership.approved':            '✅',
+  'membership.rejected':            '✖',
 }
 
 export function NotificationBell({ go }) {
@@ -67,6 +70,9 @@ export function NotificationBell({ go }) {
     } else if (go && row.subject_type === 'insurance_policy') {
       setOpen(false)
       go('patients')
+    } else if (go && row.subject_type === 'membership') {
+      setOpen(false)
+      go('team')
     }
   }
 

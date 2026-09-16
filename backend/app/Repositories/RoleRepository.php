@@ -156,6 +156,30 @@ final class RoleRepository extends Repository
         );
     }
 
+    /**
+     * Where this person has asked to join and is still waiting, or was
+     * turned down. Kept apart from membershipsForUser so nothing that reads
+     * "organizations" as "places you can work" ever sees a door that is
+     * still shut.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function applicationsForUser(int $userId): array
+    {
+        return Database::select(
+            'SELECT ou.organization_id, ou.role_id, ou.status, ou.job_title, ou.created_at,
+                    r.slug AS role_slug, r.name AS role_name,
+                    o.name AS organization_name, o.slug AS organization_slug
+               FROM organization_users ou
+               JOIN roles r         ON r.id = ou.role_id
+               JOIN organizations o ON o.id = ou.organization_id
+              WHERE ou.user_id = :uid
+                AND ou.status IN (\'pending\', \'rejected\')
+              ORDER BY ou.created_at DESC',
+            ['uid' => $userId],
+        );
+    }
+
     /** @return list<array<string,mixed>> Members of one organization. */
     public function members(int $organizationId): array
     {
@@ -170,11 +194,13 @@ final class RoleRepository extends Repository
             // wrong. A row in `doctors` or `patients` is the fact; the role is
             // only what they are allowed to press.
             'SELECT ou.id, ou.user_id, ou.role_id, ou.status, ou.job_title,
-                    ou.joined_at,
+                    ou.joined_at, ou.created_at,
                     u.name, u.email, u.phone, u.status AS user_status,
                     r.slug AS role_slug, r.name AS role_name,
                     s.employee_no, s.department, s.designation, s.hired_at,
                     d.id AS doctor_id, d.specialty,
+                    d.specialty AS doctor_specialty, d.qualification AS doctor_qualification,
+                    d.experience_years AS doctor_experience_years,
                     p.id AS patient_id, p.mrn
                FROM organization_users ou
                JOIN users u ON u.id = ou.user_id

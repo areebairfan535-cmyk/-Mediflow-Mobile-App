@@ -24,7 +24,7 @@ const DEMO = [
     sees: 'Everything in this clinic' },
 ]
 
-export default function Login({ onSignedIn, onForgot }) {
+export default function Login({ onSignedIn, onForgot, onDoctorSignup }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
@@ -142,6 +142,10 @@ export default function Login({ onSignedIn, onForgot }) {
           <p className="hint" style={{ marginTop: 14, textAlign: 'center' }}>
             <button type="button" className="link-btn" onClick={onForgot}>
               Forgotten your password?
+            </button>
+            {' · '}
+            <button type="button" className="link-btn" onClick={onDoctorSignup}>
+              Register as a doctor
             </button>
           </p>
         </form>

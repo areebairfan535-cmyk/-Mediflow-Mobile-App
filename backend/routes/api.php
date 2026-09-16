@@ -64,6 +64,8 @@ $router->group('/api/v1', [], function ($router): void {
         // holds. Guessing the medical record number is the attack, so it sits
         // in this bucket with the other brute-force targets.
         $router->post('/claim',    [AuthController::class, 'claimChart']);
+        // §2: a doctor applying to join a clinic. Waits as pending for an owner.
+        $router->post('/register-doctor', [AuthController::class, 'registerDoctor']);
         $router->post('/login',    [AuthController::class, 'login']);
         $router->post('/refresh',  [AuthController::class, 'refresh']);
 

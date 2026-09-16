@@ -46,6 +46,29 @@ final class AuthController extends Controller
     }
 
     /**
+     * A doctor applies to join a clinic (§2). The account is made at once;
+     * the membership waits as `pending` for an owner to approve it.
+     */
+    public function registerDoctor(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'name'             => 'required|string|min:2|max:255',
+            'email'            => 'required|email|max:255',
+            'password'         => 'required|string|min:8|max:255',
+            'phone'            => 'required|string|max:32',
+            'clinic'           => 'required|string|max:64',
+            'specialty'        => 'required|string|max:120',
+            // "Education" on the form; the column the clinic already uses.
+            'qualification'    => 'required|string|max:255',
+            'experience_years' => 'required|integer|between:0,70',
+            'license_no'       => 'nullable|string|max:64',
+            'locale'           => 'nullable|string|max:10',
+        ]);
+
+        $this->created((new AuthService())->registerDoctor($request, $data));
+    }
+
+    /**
      * A patient attaches a login to the chart their clinic already holds (§3).
      *
      * Separate from register() on purpose: that one must keep granting no

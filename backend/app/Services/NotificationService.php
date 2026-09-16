@@ -118,6 +118,26 @@ final class NotificationService extends Service
             'keys'     => ['provider', 'policy_number', 'reason'],
         ],
 
+        // ---- a doctor at the door (§2) ----
+        'doctor.applied' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Doctor waiting to join',
+            'body'     => '%s (%s) applied to join your clinic. Approve them from the Team page.',
+            'keys'     => ['doctor', 'specialty'],
+        ],
+        'membership.approved' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'You are in',
+            'body'     => '%s approved your application. Sign in to start.',
+            'keys'     => ['clinic'],
+        ],
+        'membership.rejected' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Application not accepted',
+            'body'     => '%s did not accept your application. %s',
+            'keys'     => ['clinic', 'reason'],
+        ],
+
         // ---- the doctor's side of the same appointments ----
         //
         // A patient booking from their phone used to reach the doctor only

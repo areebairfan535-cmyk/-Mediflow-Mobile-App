@@ -18,18 +18,30 @@ final class MembershipRepository extends Repository
 {
     protected string $model = Membership::class;
 
-    public function add(int $organizationId, int $userId, int $roleId, ?string $jobTitle): void
-    {
+    /**
+     * $status is 'active' for anyone an owner adds, 'pending' for someone who
+     * applied at the door and is waiting to be let in. joined_at is only set
+     * once they actually are.
+     */
+    public function add(
+        int $organizationId,
+        int $userId,
+        int $roleId,
+        ?string $jobTitle,
+        string $status = 'active',
+    ): void {
         Database::statement(
             'INSERT INTO organization_users
                 (organization_id, user_id, role_id, job_title, status, joined_at, created_at, updated_at)
-             VALUES (:org, :uid, :role, :title, \'active\', :now, :now, :now)',
+             VALUES (:org, :uid, :role, :title, :status, :joined, :now, :now)',
             [
-                'org'   => $organizationId,
-                'uid'   => $userId,
-                'role'  => $roleId,
-                'title' => $jobTitle,
-                'now'   => now(),
+                'org'    => $organizationId,
+                'uid'    => $userId,
+                'role'   => $roleId,
+                'title'  => $jobTitle,
+                'status' => $status,
+                'joined' => $status === 'active' ? now() : null,
+                'now'    => now(),
             ],
         );
     }
@@ -46,11 +58,16 @@ final class MembershipRepository extends Repository
 
     public function setStatus(int $organizationId, int $userId, string $status): void
     {
+        // joined_at is the first time the door opened — set once, kept after.
         Database::statement(
             'UPDATE organization_users
-                SET status = :status, updated_at = :now
+                SET status = :status, updated_at = :now,
+                    joined_at = CASE WHEN :status2 = \'active\' THEN COALESCE(joined_at, :now2) ELSE joined_at END
               WHERE organization_id = :org AND user_id = :uid',
-            ['status' => $status, 'now' => now(), 'org' => $organizationId, 'uid' => $userId],
+            [
+                'status' => $status, 'status2' => $status, 'now' => now(), 'now2' => now(),
+                'org' => $organizationId, 'uid' => $userId,
+            ],
         );
     }
 

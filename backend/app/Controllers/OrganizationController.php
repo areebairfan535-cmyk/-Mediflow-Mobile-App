@@ -238,23 +238,57 @@ final class OrganizationController extends Controller
     public function changeMemberStatus(Request $request): never
     {
         $data = $this->validate($request, [
-            'status' => 'required|in:active,disabled',
+            // `rejected` is only meaningful as the answer to a pending
+            // application; the service refuses it for anyone else.
+            'status' => 'required|in:active,disabled,rejected',
+            'reason' => 'nullable|string|max:500',
         ]);
 
-        $membership = (new RbacService())->setMemberStatus(
-            (int) $request->organizationId(),
-            $request->intParam('userId'),
-            (string) $data['status'],
-        );
+        $rbac   = new RbacService();
+        $orgId  = (int) $request->organizationId();
+        $userId = $request->intParam('userId');
+        $before = $rbac->membership($userId, $orgId);
+        $status = (string) $data['status'];
+
+        if ($status === 'rejected' && ($before['status'] ?? null) !== 'pending') {
+            throw new \App\Core\ConflictException('Only a pending application can be rejected.');
+        }
+
+        // Approving a doctor fills a paid seat (§22) — the plan says whether
+        // there is one, before the door opens.
+        if ($status === 'active' && ($before['status'] ?? null) === 'pending'
+            && ($before['role_slug'] ?? null) === 'doctor'
+        ) {
+            \App\Services\SubscriptionService::for($request)->assertWithin('doctors');
+        }
+
+        $membership = $rbac->setMemberStatus($orgId, $userId, $status);
 
         (new AuditService())->log(
-            $request,
-            'update',
-            'organization_member',
-            $request->intParam('userId'),
-            null,
-            ['status' => $data['status']],
+            $request, 'update', 'organization_member', $userId,
+            ['status' => $before['status'] ?? null],
+            ['status' => $status, 'reason' => $data['reason'] ?? null],
         );
+
+        // The applicant hears the answer. Wrapped: the decision stands
+        // whether or not the message about it goes out.
+        if (($before['status'] ?? null) === 'pending' && in_array($status, ['active', 'rejected'], true)) {
+            try {
+                $org = (new OrganizationRepository())->withoutTenantScope()->find($orgId);
+                (new \App\Services\NotificationService($orgId, (int) $request->userId()))->notifyUser(
+                    $userId,
+                    $status === 'active' ? 'membership.approved' : 'membership.rejected',
+                    [
+                        'clinic'       => (string) ($org['name'] ?? 'The clinic'),
+                        'reason'       => (string) ($data['reason'] ?? ''),
+                        'subject_type' => 'membership',
+                        'subject_id'   => $userId,
+                    ],
+                );
+            } catch (\Throwable $e) {
+                error_log('[notify] membership decision notification failed: ' . $e->getMessage());
+            }
+        }
 
         $this->ok(['member' => $membership]);
     }

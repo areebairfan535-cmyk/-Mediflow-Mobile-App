@@ -423,6 +423,8 @@ POST   /auth/register                       clinic? — a single-clinic app name
                                             its clinic and gets a chart there
 POST   /auth/claim                          attach a login to the chart a clinic
                                             already holds (§3)
+POST   /auth/register-doctor                a doctor applies to a clinic; waits as
+                                            pending until an owner approves (§2)
 POST   /auth/login
 POST   /auth/refresh
 POST   /auth/forgot-password                a code short enough to type off a

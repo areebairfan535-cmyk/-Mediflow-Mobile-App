@@ -152,6 +152,8 @@ export const api = {
   login: (email, password) =>
     request('/auth/login', { method: 'POST', body: { email, password }, auth: false, org: false }),
   logout: () => request('/auth/logout', { method: 'POST' }),
+  // A doctor applying to join this clinic; the owner approves from Team.
+  registerDoctor: (body) => request('/auth/register-doctor', { method: 'POST', body, auth: false, org: false }),
 
   // ---- forgotten password (§11): both halves are public ----
   forgotPassword: (email) =>
@@ -166,6 +168,11 @@ export const api = {
   sessions: () => request('/auth/sessions'),
   revokeSession: (id) => request(`/auth/sessions/${id}`, { method: 'DELETE' }),
   me: () => request('/me'),
+
+  // ---- the team (§9): who works here, who is waiting to ----
+  members: () => request('/organizations/current/members'),
+  setMemberStatus: (userId, status, reason) =>
+    request(`/organizations/current/members/${userId}/status`, { method: 'PUT', body: { status, reason: reason || undefined } }),
 
   // ---- the signed-in person's inbox (§20): bookings, moves, cancellations ----
   notifications: (unread) => request(`/notifications${qs({ unread: unread ? 1 : undefined })}`),

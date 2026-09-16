@@ -28,6 +28,8 @@ final class MeController extends Controller
         $payload = [
             'user'          => $request->user(),
             'organizations' => $rbac->membershipsFor($userId),
+            // Clinics this person applied to and is still waiting on (§2).
+            'applications'  => $rbac->applicationsFor($userId),
         ];
 
         // Tenant context is present only on routes that ran TenantMiddleware.

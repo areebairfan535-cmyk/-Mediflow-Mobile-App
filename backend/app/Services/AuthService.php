@@ -9,6 +9,7 @@ use App\Core\ForbiddenException;
 use App\Core\Request;
 use App\Core\UnauthorizedException;
 use App\Core\ValidationException;
+use App\Repositories\DoctorRepository;
 use App\Repositories\OrganizationRepository;
 use App\Repositories\PasswordResetRepository;
 use App\Repositories\PatientRepository;
@@ -98,6 +99,96 @@ final class AuthService
         return [
             'user'          => $this->publicUser($user),
             'organizations' => $organizations,
+            'auth'          => $tokens,
+        ];
+    }
+
+    /**
+     * A doctor asks to join a clinic (§2, §9).
+     *
+     * The account is made, the doctor profile is written — education,
+     * experience, specialty, phone — and the membership is filed as
+     * `pending`. Nothing opens: TenantMiddleware treats a pending membership
+     * as none, so the login works and the clinic stays shut until an owner
+     * approves the application from the team page. The owners are told
+     * there is one to look at.
+     *
+     * The profile is written now rather than at approval so the owner reads
+     * what the doctor wrote, not a blank row with a name on it.
+     *
+     * @param array<string,mixed> $data validated: name, email, password,
+     *        clinic, specialty, qualification, experience_years, phone?, license_no?
+     * @return array<string,mixed>
+     */
+    public function registerDoctor(Request $request, array $data): array
+    {
+        $email = strtolower(trim((string) $data['email']));
+
+        if ($this->users->emailExists($email)) {
+            throw new ConflictException('An account with this email already exists');
+        }
+        $this->assertPasswordStrength((string) $data['password']);
+
+        $org = (new OrganizationRepository())->findBySlug(trim((string) $data['clinic']));
+        if ($org === null) {
+            throw new ValidationException(['clinic' => ['No clinic by that name is on this platform.']]);
+        }
+        $role = (new RoleRepository())->findSystemRole('doctor');
+        if ($role === null) {
+            throw new ValidationException(['clinic' => ['This clinic is not taking doctors right now.']]);
+        }
+        $orgId = (int) $org['id'];
+
+        $user = Database::transaction(function () use ($data, $email, $orgId, $role): array {
+            $user = $this->users->create([
+                'name'       => trim((string) $data['name']),
+                'email'      => $email,
+                'phone'      => isset($data['phone']) ? trim((string) $data['phone']) : null,
+                'password'   => UserRepository::hashPassword((string) $data['password']),
+                'locale'     => $data['locale'] ?? 'en',
+                'status'     => 'active',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $this->rbac->apply($orgId, (int) $user['id'], (int) $role['id'], 'Doctor');
+
+            (new DoctorRepository())->forOrganization($orgId)->create([
+                'user_id'          => (int) $user['id'],
+                'specialty'        => trim((string) $data['specialty']),
+                'qualification'    => trim((string) $data['qualification']),
+                'experience_years' => (int) $data['experience_years'],
+                'license_no'       => isset($data['license_no']) ? trim((string) $data['license_no']) : null,
+                'is_accepting'     => 0,
+                'created_at'       => now(),
+                'updated_at'       => now(),
+            ]);
+
+            return $user;
+        });
+
+        $this->audit->logAuth($request, 'register', (int) $user['id']);
+
+        try {
+            $notifications = new NotificationService($orgId, (int) $user['id']);
+            foreach ($this->rbac->ownersOf($orgId) as $ownerId) {
+                $notifications->notifyUser($ownerId, 'doctor.applied', [
+                    'doctor'       => $user['name'],
+                    'specialty'    => trim((string) $data['specialty']),
+                    'subject_type' => 'membership',
+                    'subject_id'   => (int) $user['id'],
+                ]);
+            }
+        } catch (\Throwable $e) {
+            error_log('[notify] doctor application notification failed: ' . $e->getMessage());
+        }
+
+        $tokens = $this->tokens->issuePair((int) $user['id'], null, $this->deviceContext($request));
+
+        return [
+            'user'          => $this->publicUser($user),
+            'organizations' => [],
+            'applications'  => $this->rbac->applicationsFor((int) $user['id']),
             'auth'          => $tokens,
         ];
     }
@@ -347,6 +438,9 @@ final class AuthService
         return [
             'user'            => $this->publicUser($user),
             'organizations'   => $memberships,
+            // Where they are still waiting to be let in — so a doctor whose
+            // application is unanswered sees "waiting", not "no access".
+            'applications'    => $this->rbac->applicationsFor((int) $user['id']),
             'active_org_id'   => $activeOrgId,
             'auth'            => $tokens,
         ];

@@ -38,6 +38,35 @@ final class RbacService
         return $this->roles->membershipsForUser($userId);
     }
 
+    /**
+     * Where this person is waiting to be let in, or was refused.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function applicationsFor(int $userId): array
+    {
+        return $this->roles->applicationsForUser($userId);
+    }
+
+    /**
+     * A doctor (or anyone) asks to join a clinic. The membership exists from
+     * this moment — so the login works and /me can say "waiting" — but it is
+     * `pending`, which TenantMiddleware treats exactly like no membership at
+     * all. An owner's approval is what opens the door.
+     *
+     * @return array<string,mixed> the pending membership
+     */
+    public function apply(int $organizationId, int $userId, int $roleId, ?string $jobTitle): array
+    {
+        if ($this->membership($userId, $organizationId) !== null) {
+            throw new ConflictException('This user is already a member of the organization');
+        }
+
+        $this->memberships()->add($organizationId, $userId, $roleId, $jobTitle, 'pending');
+
+        return $this->membership($userId, $organizationId) ?? [];
+    }
+
     /** @return list<string> */
     public function permissionsForRole(int $roleId): array
     {
