@@ -300,13 +300,37 @@ final class EncounterService extends Service
         $encounter = $this->encounters()->findOrFail($encounterId, 'Encounter');
         $this->assertOpen($encounter);
 
-        return $this->clinical()->createLabOrder([
+        $order = $this->clinical()->createLabOrder([
             'encounter_id'   => $encounterId,
             'patient_id'     => (int) $encounter['patient_id'],
             'doctor_id'      => (int) $encounter['doctor_id'],
             'priority'       => $data['priority'] ?? 'routine',
             'clinical_notes' => $data['clinical_notes'] ?? null,
+            'tests'          => $data['tests'] ?? [],
         ], $this->actorId);
+
+        // The patient reads the recommendation on their phone: which tests,
+        // and that any lab will do. Outside the write and swallowed — an
+        // order is worth more than the message about it.
+        try {
+            $names = array_map(static fn (array $t): string => (string) $t['test_name'], $order['tests'] ?? []);
+            (new NotificationService($this->organizationId, $this->actorId))->notifyPatient(
+                (int) $encounter['patient_id'],
+                'lab.tests_recommended',
+                [
+                    'doctor'       => (new DoctorRepository())->forOrganization($this->requireOrganization())
+                                        ->displayName((int) $encounter['doctor_id']),
+                    'count'        => (string) count($names),
+                    'tests'        => implode(', ', $names),
+                    'subject_type' => 'lab_order',
+                    'subject_id'   => (int) $order['id'],
+                ],
+            );
+        } catch (\Throwable $e) {
+            error_log('[notify] lab recommendation notification failed: ' . $e->getMessage());
+        }
+
+        return $order;
     }
 
     /** @param array<string,mixed> $encounter */

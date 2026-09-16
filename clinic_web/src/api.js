@@ -232,8 +232,9 @@ export const api = {
 
   // ---- labs ----
   labOrders: (params) => request(`/lab-orders${qs(params)}`),
-  recordLabResults: (id, results) =>
-    request(`/lab-orders/${id}/results`, { method: 'POST', body: { results } }),
+  // extra: lab_name, total_charge — where it was done and what it cost.
+  recordLabResults: (id, results, extra = {}) =>
+    request(`/lab-orders/${id}/results`, { method: 'POST', body: { results, ...extra } }),
 
   // ---- billing (Phase 3) ----
   services: (params) => request(`/services${qs(params)}`),

@@ -24,6 +24,8 @@ const ICONS = {
   'appointment.cancelled.doctor':   '✖',
   'insurance.submitted':            '🛡',
   'doctor.applied':                 '👥',
+  'lab.completed.owner':            '🧪',
+  'appointment.confirmed.owner':    '✅',
   'membership.approved':            '✅',
   'membership.rejected':            '✖',
 }
@@ -73,6 +75,9 @@ export function NotificationBell({ go }) {
     } else if (go && row.subject_type === 'membership') {
       setOpen(false)
       go('team')
+    } else if (go && row.subject_type === 'lab_order') {
+      setOpen(false)
+      go('lab')
     }
   }
 

@@ -231,14 +231,51 @@ function Prescription({ rx }) {
   )
 }
 
+/**
+ * One lab order, at whichever stage it is.
+ *
+ * Before the results: the tests the doctor recommended, by name, and a note
+ * that any lab will do — this is the list the patient hands over at the
+ * counter. After: the values, and where it was done.
+ */
 function LabOrder({ lo }) {
+  const pending = !['completed', 'cancelled'].includes(lo.status)
+  const tests = lo.tests || []
   return (
     <Card>
       <View style={s.spread}>
-        <Text style={s.docNo}>{lo.order_no}</Text>
-        <Badge>{lo.status}</Badge>
+        <Text style={s.itemName}>
+          {tests.length ? tests.map((t) => t.test_name).join(', ') : 'Lab tests'}
+        </Text>
+        <Badge tone={pending ? 'warn' : undefined}>
+          {pending ? 'to be done' : lo.status}
+        </Badge>
       </View>
-      <Text style={s.muted}>{dateOnly(lo.completed_at || lo.created_at)}</Text>
+      <Text style={s.muted}>
+        <Text style={s.docNo}>{lo.order_no}</Text>
+        {' · '}{dateOnly(lo.completed_at || lo.ordered_at || lo.created_at)}
+        {lo.lab_name ? ` · ${lo.lab_name}` : ''}
+      </Text>
+
+      {pending && (
+        <View style={{ marginTop: 10 }}>
+          {tests.map((t) => (
+            <View key={t.id} style={[s.spread, { marginTop: 5 }]}>
+              <Text style={{ fontWeight: '600', color: c.ink }}>{t.test_name}</Text>
+              {t.price != null ? (
+                <Text style={s.muted}>at our lab {Number(t.price).toLocaleString()}</Text>
+              ) : null}
+            </View>
+          ))}
+          <Text style={[s.muted, { marginTop: 10, fontSize: 12.5 }]}>
+            Show this list at our lab or any lab you prefer. The results will
+            appear here once they are uploaded.
+          </Text>
+          {lo.clinical_notes ? (
+            <Text style={[s.muted, { marginTop: 4, fontSize: 12.5 }]}>Doctor's note: {lo.clinical_notes}</Text>
+          ) : null}
+        </View>
+      )}
 
       {lo.results?.length > 0 && (
         <View style={{ marginTop: 10 }}>

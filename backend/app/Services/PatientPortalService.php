@@ -532,13 +532,21 @@ final class PatientPortalService extends Service
     }
 
     /** @return list<array<string,mixed>> */
+    /**
+     * Every lab order that is still the patient's business: the ones the
+     * doctor recommended and are waiting to be done (with the tests named,
+     * so the patient knows what to ask any lab for) and the ones with
+     * results back. Cancelled orders are not — they are nobody's to-do.
+     *
+     * @return list<array<string,mixed>>
+     */
     public function labResults(): array
     {
         return array_values(array_filter(
             (new ClinicalRepository())
                 ->forOrganization($this->requireOrganization())
                 ->labOrders(['patient_id' => $this->meId()]),
-            static fn(array $order): bool => $order['status'] === 'completed',
+            static fn(array $order): bool => $order['status'] !== 'cancelled',
         ));
     }
 

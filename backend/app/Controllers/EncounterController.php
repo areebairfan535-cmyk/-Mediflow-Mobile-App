@@ -221,12 +221,36 @@ final class EncounterController extends Controller
         $this->ok(['message' => 'Removed']);
     }
 
+    /** Body: { tests: [{name, price?}, ...], priority?, clinical_notes? } */
     public function orderLab(Request $request): never
     {
         $data = $this->validate($request, [
             'priority'       => 'nullable|in:routine,urgent,stat',
             'clinical_notes' => 'nullable|string|max:2000',
         ]);
+
+        // The tests are the order. "Lab test ordered" with nothing named is
+        // what the patient used to read, and what the lab used to guess at.
+        $tests  = $request->body['tests'] ?? null;
+        $errors = [];
+        if (!is_array($tests) || $tests === []) {
+            $errors[] = 'Name at least one test.';
+        } else {
+            foreach (array_values($tests) as $i => $t) {
+                if (!is_array($t) || trim((string) ($t['name'] ?? '')) === '') {
+                    $errors[] = 'Test ' . ($i + 1) . ' needs a name.';
+                } elseif (isset($t['price']) && $t['price'] !== '' && !is_numeric($t['price'])) {
+                    $errors[] = 'Test ' . ($i + 1) . ': the price must be a number.';
+                }
+            }
+        }
+        if ($errors !== []) {
+            throw new ValidationException(['tests' => $errors]);
+        }
+        $data['tests'] = array_map(static fn (array $t): array => [
+            'name'  => trim((string) $t['name']),
+            'price' => isset($t['price']) && $t['price'] !== '' ? (string) $t['price'] : null,
+        ], array_values($tests));
 
         $id    = $request->intParam('id');
         $order = EncounterService::for($request)->orderLab($id, $data);

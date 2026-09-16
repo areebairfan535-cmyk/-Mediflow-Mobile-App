@@ -220,10 +220,8 @@ export default function Consultation({ encounterId, session, go }) {
             title={`Lab orders (${e.lab_orders.length})`}
             bodyless
             action={open && session.can('lab.create') && (
-              <button className="btn btn-sm btn-secondary"
-                      onClick={() => act(
-                        () => api.orderLab(e.id, { priority: 'routine' }), 'Lab test ordered.')}>
-                Order test
+              <button className="btn btn-sm btn-secondary" onClick={() => setModal('lab')}>
+                Recommend tests
               </button>
             )}
           >
@@ -233,9 +231,13 @@ export default function Consultation({ encounterId, session, go }) {
               ) : e.lab_orders.map((l) => (
                 <div className="line-item" key={l.id}>
                   <div className="body">
-                    <div className="title mono">{l.order_no}</div>
+                    <div className="title">
+                      {l.test_names || 'Tests'} <span className="hint mono">{l.order_no}</span>
+                    </div>
                     <div className="sub">
                       {l.priority} · {l.result_count} result(s)
+                      {l.lab_name ? ` · ${l.lab_name}` : ''}
+                      {l.total_charge != null ? ` · ${money(l.total_charge)}` : ''}
                       {l.clinical_notes ? ` · ${l.clinical_notes}` : ''}
                     </div>
                   </div>
@@ -300,6 +302,16 @@ export default function Consultation({ encounterId, session, go }) {
           onClose={() => setModal(null)}
           onSubmit={async (body) => {
             await act(() => api.addDiagnosis(e.id, body), 'Diagnosis added.')
+            setModal(null)
+          }}
+        />
+      )}
+
+      {modal === 'lab' && (
+        <LabOrderModal
+          onClose={() => setModal(null)}
+          onSubmit={async (body) => {
+            await act(() => api.orderLab(e.id, body), 'Tests recommended — the patient has been told.')
             setModal(null)
           }}
         />
@@ -899,6 +911,123 @@ function CompleteVisit({ onComplete, onCancel }) {
  * searches, clicks, and the boxes below are already filled — free text stays
  * available underneath for the thing that has not been seen before.
  */
+/**
+ * The tests the doctor recommends, by name, with a price where the clinic's
+ * own lab charges one. The patient reads exactly this list on their phone
+ * and may take it to any lab; the clinic's lab sees the same list to do.
+ */
+const COMMON_TESTS = [
+  'CBC', 'Blood sugar (fasting)', 'HbA1c', 'Dental X-ray (periapical)', 'OPG (panoramic X-ray)',
+  'Lipid profile', 'LFT', 'RFT', 'Urine R/E', 'Vitamin D', 'Calcium', 'Culture & sensitivity',
+]
+
+function LabOrderModal({ onClose, onSubmit }) {
+  const [tests, setTests] = useState([{ name: '', price: '' }])
+  const [priority, setPriority] = useState('routine')
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  const named = tests.filter((t) => t.name.trim() !== '')
+  const set = (i, key, v) => setTests(tests.map((t, n) => (n === i ? { ...t, [key]: v } : t)))
+  const quick = (name) => {
+    if (named.some((t) => t.name.trim().toLowerCase() === name.toLowerCase())) return
+    const blank = tests.findIndex((t) => t.name.trim() === '')
+    if (blank >= 0) set(blank, 'name', name)
+    else setTests([...tests, { name, price: '' }])
+  }
+
+  async function submit(ev) {
+    ev.preventDefault()
+    if (named.length === 0) { setError(new Error('Name at least one test.')); return }
+    setBusy(true)
+    setError(null)
+    try {
+      await onSubmit({
+        tests: named.map((t) => ({ name: t.name.trim(), price: t.price === '' ? undefined : Number(t.price) })),
+        priority,
+        clinical_notes: notes.trim() || undefined,
+      })
+    } catch (err) {
+      setError(err)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Recommend tests"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn" form="lab-order-form" disabled={busy}>
+            {busy ? 'Sending…' : `Recommend ${named.length || ''} test${named.length === 1 ? '' : 's'}`}
+          </button>
+        </>
+      }
+    >
+      <form id="lab-order-form" onSubmit={submit}>
+        {error && (
+          <div className="alert">
+            {error.message}
+            {error.fieldMessages?.map((m) => <div key={m}>{m}</div>)}
+          </div>
+        )}
+
+        <p className="hint" style={{ marginBottom: 10 }}>
+          The patient sees this list on their phone and can have it done at our
+          lab or any lab they prefer. The price is ours, if we do it.
+        </p>
+
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+          {COMMON_TESTS.map((name) => (
+            <button type="button" key={name} className="btn btn-sm btn-secondary"
+                    onClick={() => quick(name)}>{name}</button>
+          ))}
+        </div>
+
+        {tests.map((t, i) => (
+          <div className="row" key={i} style={{ alignItems: 'flex-end', marginBottom: 8 }}>
+            <div className="field" style={{ flex: 3, marginBottom: 0 }}>
+              <label>Test {i + 1}{i === 0 ? ' *' : ''}</label>
+              <input value={t.name} placeholder="CBC" onChange={(ev) => set(i, 'name', ev.target.value)} />
+            </div>
+            <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+              <label>Price</label>
+              <input type="number" min="0" value={t.price} placeholder="800"
+                     onChange={(ev) => set(i, 'price', ev.target.value)} />
+            </div>
+            {tests.length > 1 && (
+              <button type="button" className="icon-btn" title="Remove"
+                      onClick={() => setTests(tests.filter((_, n) => n !== i))}>✕</button>
+            )}
+          </div>
+        ))}
+        <button type="button" className="btn btn-sm btn-secondary" style={{ marginBottom: 12 }}
+                onClick={() => setTests([...tests, { name: '', price: '' }])}>
+          + Another test
+        </button>
+
+        <div className="row" style={{ alignItems: 'flex-end' }}>
+          <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+            <label>Priority</label>
+            <select value={priority} onChange={(ev) => setPriority(ev.target.value)}>
+              <option value="routine">routine</option>
+              <option value="urgent">urgent</option>
+              <option value="stat">stat</option>
+            </select>
+          </div>
+          <div className="field" style={{ flex: 3, marginBottom: 0 }}>
+            <label>Note for the lab (optional)</label>
+            <input value={notes} placeholder="Suspected infection, lower left" onChange={(ev) => setNotes(ev.target.value)} />
+          </div>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 function SimpleModal({ title, fields, onClose, onSubmit, picker }) {
   const [values, setValues] = useState(
     Object.fromEntries(fields.map((f) => [f.key, f.default ?? ''])),

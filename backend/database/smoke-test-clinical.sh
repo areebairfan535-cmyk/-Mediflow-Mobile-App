@@ -247,7 +247,7 @@ else
   fail "no priced procedure in the catalogue to link to"
 fi
 
-R=$(api POST "/encounters/$ENC/lab-orders" '{"priority":"routine","clinical_notes":"Pre-op bloods"}' "${AUTH[@]}")
+R=$(api POST "/encounters/$ENC/lab-orders" '{"priority":"routine","clinical_notes":"Pre-op bloods","tests":[{"name":"CBC","price":800},{"name":"PT/INR"}]}' "${AUTH[@]}")
 expect "order lab test" "$(status_of "$R")" "201"
 LAB=$(jnum "$(body_of "$R")" id)
 

@@ -105,7 +105,19 @@ final class ClinicalController extends Controller
             throw new \App\Core\ConflictException('Results for this order have already been recorded.');
         }
 
-        $repo->recordLabResults($orderId, (int) $order['patient_id'], $results, $request->userId());
+        // Where it was done and what it cost — the clinic's own lab or one
+        // the patient chose. Both optional: a result is a result.
+        $labName = trim((string) ($request->body['lab_name'] ?? ''));
+        $charge  = $request->body['total_charge'] ?? null;
+        if ($charge !== null && $charge !== '' && (!is_numeric($charge) || (float) $charge < 0)) {
+            throw new ValidationException(['total_charge' => ['The charge must be a number.']]);
+        }
+        $charge = ($charge === null || $charge === '') ? null : number_format((float) $charge, 2, '.', '');
+
+        $repo->recordLabResults(
+            $orderId, (int) $order['patient_id'], $results, $request->userId(),
+            $labName === '' ? null : $labName, $charge,
+        );
 
         (new AuditService())->log(
             $request, 'update', 'lab_order', $orderId,
@@ -130,6 +142,32 @@ final class ClinicalController extends Controller
             );
         } catch (\Throwable $e) {
             error_log('[notify] lab result notification failed: ' . $e->getMessage());
+        }
+
+        // The owner: which patient, which tests, which lab, what it cost.
+        try {
+            $patient = (new \App\Repositories\PatientRepository())
+                ->forOrganization($request->organizationId())->find((int) $order['patient_id']);
+            $names   = array_map(static fn (array $t): string => (string) $t['test_name'], $order['tests'] ?? []);
+            if ($names === []) {
+                $names = array_map(static fn (array $r): string => (string) $r['test_name'], $results);
+            }
+            $notifications = new NotificationService($request->organizationId(), $request->userId());
+            foreach ((new \App\Services\RbacService())->ownersOf((int) $request->organizationId()) as $ownerId) {
+                if ($ownerId === (int) $request->userId()) {
+                    continue;
+                }
+                $notifications->notifyUser($ownerId, 'lab.completed.owner', [
+                    'patient'      => trim(($patient['first_name'] ?? '') . ' ' . ($patient['last_name'] ?? '')) ?: 'A patient',
+                    'tests'        => implode(', ', $names),
+                    'lab'          => $labName !== '' ? $labName : 'the clinic lab',
+                    'charge'       => $charge === null ? 'not recorded' : number_format((float) $charge, 2),
+                    'subject_type' => 'lab_order',
+                    'subject_id'   => $orderId,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            error_log('[notify] lab completion notification failed: ' . $e->getMessage());
         }
 
         $this->ok(['lab_orders' => $repo->labOrders(['patient_id' => (int) $order['patient_id']])]);

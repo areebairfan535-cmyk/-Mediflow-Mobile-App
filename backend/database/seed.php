@@ -449,6 +449,8 @@ $receptionist = $upsertUser($users, 'Sana Malik',      'reception@clinic.test', 
 // Billing staff exist as their own account so the separation of duties in §7
 // is demonstrable: they may REQUEST a refund but not approve their own.
 $billing      = $upsertUser($users, 'Imran Yousaf',    'billing@clinic.test', 'billing staff');
+// The lab: enters results against what the doctors ordered, and nothing else.
+$lab          = $upsertUser($users, 'Hina Raza',       'lab@clinic.test',     'lab staff');
 
 // ---------------------------------------------------------------
 // Demo organization
@@ -531,6 +533,7 @@ $addMember($orgId, $owner,        'org_owner',     'Owner / Principal Dentist');
 $addMember($orgId, $doctor,       'solo_practitioner', 'Consultant');
 $addMember($orgId, $receptionist, 'receptionist',  'Front Desk');
 $addMember($orgId, $billing,      'billing_staff', 'Billing & Claims');
+$addMember($orgId, $lab,          'lab_staff',     'Laboratory');
 
 // Doctor rows for the two clinicians. The two sit at different sites, so the
 // patient app's location filter has something to filter by (§3).
@@ -632,6 +635,7 @@ Sign in with any of these (password for all: $password)
   doctor@clinic.test        doctor          (Demo Clinic)
   reception@clinic.test     receptionist    (Demo Clinic)
   billing@clinic.test       billing_staff   (Demo Clinic)
+  lab@clinic.test           lab_staff       (Demo Clinic)
 
 Organization id: $orgId  — send it as the X-Organization-Id header.
 ================================================================

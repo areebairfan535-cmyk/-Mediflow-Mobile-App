@@ -107,7 +107,7 @@ if [ -z "$ORDER" ]; then
     ENC=$(sql "SELECT id FROM encounters WHERE patient_id=$PID AND status='open' ORDER BY id DESC LIMIT 1")
   fi
   curl -s -o /dev/null -X POST "${O[@]}" "$BASE/encounters/$ENC/lab-orders" \
-    -d '{"priority":"routine","clinical_notes":"Routine check"}'
+    -d '{"priority":"routine","clinical_notes":"Routine check","tests":[{"name":"CBC"}]}'
   ORDER=$(sql "SELECT id FROM lab_orders WHERE patient_id=$PID AND status <> 'completed' ORDER BY id DESC LIMIT 1")
 fi
 [ -z "$ORDER" ] && { echo "  could not get a lab order to work with"; exit 1; }

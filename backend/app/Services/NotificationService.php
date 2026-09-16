@@ -99,11 +99,25 @@ final class NotificationService extends Service
             'body'     => 'Invoice %s for %s is past its due date.',
             'keys'     => ['invoice_no', 'amount'],
         ],
+        // The doctor's recommendation, the moment it is made (§4, §5).
+        'lab.tests_recommended' => [
+            'channels' => ['in_app', 'push'],
+            'title'    => 'Tests recommended',
+            'body'     => '%s recommended %s test(s): %s. Have them done at our lab or any lab you prefer — the results will show here.',
+            'keys'     => ['doctor', 'count', 'tests'],
+        ],
         'lab.result_ready' => [
             'channels' => ['in_app', 'push'],
             'title'    => 'Lab results ready',
             'body'     => 'Results for order %s are available.',
             'keys'     => ['order_no'],
+        ],
+        // The owner hears what was done, where, and for how much.
+        'lab.completed.owner' => [
+            'channels' => ['in_app'],
+            'title'    => 'Lab results uploaded',
+            'body'     => '%s had %s done at %s. Charge: %s. Results are on the chart.',
+            'keys'     => ['patient', 'tests', 'lab', 'charge'],
         ],
         'claim.updated' => [
             'channels' => ['in_app'],

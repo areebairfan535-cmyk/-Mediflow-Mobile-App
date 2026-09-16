@@ -519,7 +519,8 @@ GET    /diagnoses/common?search=          what this clinic diagnoses, commonest 
 POST   /encounters/{id}/diagnoses
 POST   /encounters/{id}/procedures
 POST   /encounters/{id}/notes
-POST   /encounters/{id}/lab-orders
+POST   /encounters/{id}/lab-orders            tests: [{name, price?}] — named, so the
+                                            patient and the lab read the same list
 DELETE /encounters/{id}/{kind}/{childId}
 
 GET    /prescriptions?status=&patient_id=     who was prescribed what

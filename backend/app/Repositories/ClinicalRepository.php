@@ -222,17 +222,46 @@ final class ClinicalRepository extends Repository
             ],
         );
 
-        return Database::selectOne(
-            'SELECT * FROM lab_orders WHERE id = :id',
-            ['id' => Database::lastInsertId()],
-        ) ?? [];
+        $orderId = Database::lastInsertId();
+
+        // The tests themselves — what the patient reads on their phone and
+        // what the lab is asked to do. A price where the clinic's lab has one.
+        foreach ($data['tests'] ?? [] as $test) {
+            Database::statement(
+                'INSERT INTO lab_order_tests (organization_id, lab_order_id, test_name, price, created_at)
+                 VALUES (:org, :lid, :name, :price, :now)',
+                [
+                    'org'   => $this->scopeBinding(),
+                    'lid'   => $orderId,
+                    'name'  => trim((string) $test['name']),
+                    'price' => isset($test['price']) && $test['price'] !== '' ? $test['price'] : null,
+                    'now'   => now(),
+                ],
+            );
+        }
+
+        return $this->findLabOrder($orderId) ?? [];
     }
 
     public function findLabOrder(int $id): ?array
     {
-        return Database::selectOne(
+        $row = Database::selectOne(
             'SELECT * FROM lab_orders WHERE organization_id = :org AND id = :id',
             ['org' => $this->scopeBinding(), 'id' => $id],
+        );
+        if ($row !== null) {
+            $row['tests'] = $this->testsFor((int) $row['id']);
+        }
+        return $row;
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function testsFor(int $labOrderId): array
+    {
+        return Database::select(
+            'SELECT id, test_name, price FROM lab_order_tests
+              WHERE organization_id = :org AND lab_order_id = :lid ORDER BY id',
+            ['org' => $this->scopeBinding(), 'lid' => $labOrderId],
         );
     }
 
@@ -348,6 +377,7 @@ final class ClinicalRepository extends Repository
         );
 
         foreach ($rows as $i => $row) {
+            $rows[$i]['tests']   = $this->testsFor((int) $row['id']);
             $rows[$i]['results'] = Database::select(
                 'SELECT * FROM lab_results
                   WHERE organization_id = :org AND lab_order_id = :lid ORDER BY id',
@@ -359,11 +389,19 @@ final class ClinicalRepository extends Repository
     }
 
     /** @param list<array<string,mixed>> $results */
-    public function recordLabResults(int $labOrderId, int $patientId, array $results, ?int $actorId): void
-    {
+    public function recordLabResults(
+        int $labOrderId,
+        int $patientId,
+        array $results,
+        ?int $actorId,
+        ?string $labName = null,
+        ?string $totalCharge = null,
+    ): void {
         $org = $this->scopeBinding();
 
-        Database::transaction(function () use ($org, $labOrderId, $patientId, $results, $actorId): void {
+        Database::transaction(function () use (
+            $org, $labOrderId, $patientId, $results, $actorId, $labName, $totalCharge
+        ): void {
             foreach ($results as $r) {
                 Database::statement(
                     'INSERT INTO lab_results
@@ -391,9 +429,15 @@ final class ClinicalRepository extends Repository
             Database::statement(
                 'UPDATE lab_orders
                     SET status = \'completed\', completed_at = :now,
+                        lab_name = COALESCE(:lab, lab_name),
+                        total_charge = COALESCE(:charge, total_charge),
                         updated_by = :by, updated_at = :now2
                   WHERE organization_id = :org AND id = :id',
-                ['now' => now(), 'now2' => now(), 'by' => $actorId, 'org' => $org, 'id' => $labOrderId],
+                [
+                    'now' => now(), 'now2' => now(), 'by' => $actorId,
+                    'lab' => $labName, 'charge' => $totalCharge,
+                    'org' => $org, 'id' => $labOrderId,
+                ],
             );
         });
     }

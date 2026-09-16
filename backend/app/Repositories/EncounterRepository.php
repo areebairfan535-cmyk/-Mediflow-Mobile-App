@@ -113,7 +113,9 @@ final class EncounterRepository extends Repository
 
         $encounter['lab_orders'] = Database::select(
             'SELECT lo.*,
-                    (SELECT COUNT(*) FROM lab_results lr WHERE lr.lab_order_id = lo.id) AS result_count
+                    (SELECT COUNT(*) FROM lab_results lr WHERE lr.lab_order_id = lo.id) AS result_count,
+                    (SELECT GROUP_CONCAT(t.test_name ORDER BY t.id SEPARATOR \', \')
+                       FROM lab_order_tests t WHERE t.lab_order_id = lo.id) AS test_names
                FROM lab_orders lo
               WHERE lo.organization_id = :org AND lo.encounter_id = :eid
               ORDER BY lo.id',
