@@ -19,7 +19,7 @@ jab asal mein 45 aur 100 thay.
 | Cheez | Kahan | Saboot |
 |---|---|---|
 | Architecture | `Routes → Middleware → Controller → Validator → Service → Repository → Model → Database` | Controllers aur services mein **0 SQL**; 30 repositories |
-| Database | 45 tables | 100 foreign keys, sab InnoDB |
+| Database | 46 tables | 101 foreign keys, sab InnoDB |
 | Auth | Access + refresh tokens, rotation ke saath | 7,736 token rows; purana token rotate hote hi mar jata hai |
 | RBAC | 11 roles, 51 permissions, 218 mappings | `perm:` middleware har route par |
 | Organizations | 53 clinics, 101 memberships | Har tenant table mein `organization_id` |
@@ -38,7 +38,7 @@ Middleware: `Auth`, `Permission`, `PlatformAdmin`, `RateLimit`, `Tenant`
 | Cheez | Rows |
 |---|---|
 | patients | 249 |
-| doctors | 13 |
+| doctors | 3 |
 | appointments | 479 |
 | encounters (consultations) | 406 |
 | diagnoses | 271 |
@@ -115,7 +115,7 @@ Expo SDK 57. Payment gateway browser mein khulta hai aur app mein wapis aata hai
 | Cheez | Rows |
 |---|---|
 | insurance_providers | 4 |
-| insurance_policies | 5 |
+| insurance_policies | 4 |
 | claims | 335 |
 | claim_items | 335 |
 

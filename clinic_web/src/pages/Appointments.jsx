@@ -137,7 +137,7 @@ export default function Appointments({ session, go }) {
                   {(a.status === 'booked' || a.status === 'confirmed' || a.status === 'on_hold') && (
                     <>
                       {/* Arrived is the front desk's word, not the doctor's. */}
-                      {session.role !== 'doctor' && (
+                      {!['doctor', 'solo_practitioner'].includes(session.role) && (
                         <button className="btn btn-sm btn-secondary"
                                 onClick={() => setStatus(a.id, 'arrived')}>Arrived</button>
                       )}
