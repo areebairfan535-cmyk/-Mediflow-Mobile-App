@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, tokens } from './api.js'
 import { Loading } from './components.jsx'
+import { NotificationBell } from './NotificationBell.jsx'
 import Login from './pages/Login.jsx'
 import SignUp from './pages/SignUp.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
@@ -11,6 +12,7 @@ import AuditLogs from './pages/AuditLogs.jsx'
 import Account from './pages/Account.jsx'
 import Subscription from './pages/Subscription.jsx'
 import Platform from './pages/Platform.jsx'
+import Appointments from './pages/Appointments.jsx'
 import PlatformConfig from './pages/PlatformConfig.jsx'
 import SystemSettings from './pages/SystemSettings.jsx'
 
@@ -24,6 +26,8 @@ const PAGES = [
   { key: 'members', label: 'Team', icon: '👥', section: 'Organization', perm: 'member.view' },
   { key: 'roles', label: 'Roles', icon: '🔑', section: 'Organization', perm: 'member.view' },
   { key: 'plan', label: 'Plan & usage', icon: '◈', section: 'Organization', perm: 'member.view' },
+  // The owner answers bookings here; a platform admin sees every clinic's.
+  { key: 'appointments', label: 'Appointments', icon: '📅', section: 'Organization', perm: 'appointment.update' },
   { key: 'audit', label: 'Audit log', icon: '🗒', section: 'Security', perm: 'audit.view' },
   { key: 'account', label: 'Account & security', icon: '🔐', section: 'Security' },
   { key: 'platform', label: 'All tenants', icon: '🏥', section: 'Platform', platformOnly: true },
@@ -191,19 +195,22 @@ export default function App() {
             )}
           </div>
 
-          {session.organizations.length > 1 && (
-            <select
-              value={tokens.org ?? ''}
-              onChange={(e) => switchOrganization(e.target.value)}
-              style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}
-            >
-              {session.organizations.map((o) => (
-                <option key={o.organization_id} value={o.organization_id}>
-                  {o.organization_name}
-                </option>
-              ))}
-            </select>
-          )}
+          <div className="row">
+            {session.organizations.length > 1 && (
+              <select
+                value={tokens.org ?? ''}
+                onChange={(e) => switchOrganization(e.target.value)}
+                style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}
+              >
+                {session.organizations.map((o) => (
+                  <option key={o.organization_id} value={o.organization_id}>
+                    {o.organization_name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <NotificationBell go={setPage} />
+          </div>
         </header>
 
         <main className="content">
@@ -214,6 +221,7 @@ export default function App() {
           {active === 'plan' && <Subscription session={session} />}
           {active === 'account' && <Account session={session} onSignedOut={signOut} />}
           {active === 'platform' && <Platform />}
+          {active === 'appointments' && <Appointments session={session} />}
           {active === 'catalogue' && <PlatformConfig />}
           {active === 'settings' && <SystemSettings />}
           {!active && (

@@ -212,6 +212,31 @@ export const api = {
   // to be able to look after. The endpoint has always returned them.
   platformOrganization: (id) => request(`/platform/organizations/${id}`),
 
+  // ---- the signed-in person's inbox (§20) — no tenant needed ----
+  notifications: () => request('/notifications'),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () => request('/notifications/read', { method: 'POST' }),
+
+  // ---- this clinic's bookings, and answering one (owner / front desk) ----
+  appointments: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== '' && v != null),
+    ).toString()
+    return request(`/appointments${qs ? `?${qs}` : ''}`)
+  },
+  setAppointmentStatus: (id, status, reason) =>
+    request(`/appointments/${id}/status`, { method: 'PUT', body: { status, reason } }),
+
+  // ---- platform: bookings across every clinic, and answering one ----
+  platformAppointments: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== '' && v != null),
+    ).toString()
+    return request(`/platform/appointments${qs ? `?${qs}` : ''}`)
+  },
+  setPlatformAppointmentStatus: (id, status, reason) =>
+    request(`/platform/appointments/${id}/status`, { method: 'PUT', body: { status, reason } }),
+
   // ---- platform: the price list and the markets (§21, §22, §23) ----
   platformPlans: () => request('/platform/plans'),
   createPlatformPlan: (body) => request('/platform/plans', { method: 'POST', body }),
