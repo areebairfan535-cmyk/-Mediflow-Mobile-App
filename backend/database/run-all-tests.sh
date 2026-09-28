@@ -82,10 +82,12 @@ echo
 
 # One suite per line, then the total. A suite that printed no result at all
 # is called out rather than quietly skipped — that is how a crash hides.
+# Exits non-zero when anything failed or went missing, so CI goes red.
 awk '
-    /^=== /    { if (p != "") print "  NO RESULT: " p; p = $2; next }
+    /^=== /    { if (p != "") { print "  NO RESULT: " p; missing++ }; p = $2; next }
     /^passed:/ { printf "  %-28s %4s passed / %s failed\n", p, $2, $4; t += $2; f += $4; p = "" }
-    END        { if (p != "") print "  NO RESULT: " p
+    END        { if (p != "") { print "  NO RESULT: " p; missing++ }
                  print ""
-                 print "  TOTAL: " t " passed, " f " failed" }
+                 print "  TOTAL: " t " passed, " f " failed"
+                 exit (f > 0 || missing > 0) }
 ' "$LOG"

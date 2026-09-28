@@ -1,0 +1,124 @@
+# Runs on every push and pull request. Two jobs, side by side:
+#
+#   web   builds clinic_web and admin_web with Vite, and parses every
+#         patient_app source file with Babel (Expo's own preset), so a typo
+#         in a screen is caught here rather than on the phone.
+#
+#   api   lints every PHP file, builds the schema and demo data on a fresh
+#         MySQL, starts the API, and runs the whole smoke-test suite —
+#         the same `bash database/run-all-tests.sh` a developer runs locally.
+#
+# The suites default to XAMPP paths for php and mysql; MYSQL and PHP below
+# point them at the runner's copies instead. ~/.my.cnf carries the root
+# password so the suites' bare `mysql -u root` keeps working unchanged.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web apps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: clinic_web build
+        working-directory: clinic_web
+        run: |
+          npm ci
+          npm run build
+
+      - name: admin_web build
+        working-directory: admin_web
+        run: |
+          npm ci
+          npm run build
+
+      - name: patient_app parse
+        working-directory: patient_app
+        run: |
+          npm ci
+          node -e '
+            const babel = require("@babel/core"), fs = require("fs"), path = require("path")
+            const walk = d => fs.readdirSync(d, { withFileTypes: true })
+              .flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)])
+            let bad = 0
+            for (const f of [...walk("app"), ...walk("src")].filter(f => /\.(js|jsx|ts|tsx)$/.test(f))) {
+              try { babel.parseSync(fs.readFileSync(f, "utf8"), { filename: f, presets: ["babel-preset-expo"] }) }
+              catch (e) { bad++; console.log("PARSE ERROR", f, e.message) }
+            }
+            process.exit(bad ? 1 : 0)
+          '
+
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring, curl, iconv
+
+      - name: PHP lint
+        run: find . -name '*.php' -print0 | xargs -0 -n1 -P4 php -l | { grep -v 'No syntax errors' || true; } | tee lint.txt; test ! -s lint.txt
+
+      - name: Start MySQL
+        run: |
+          sudo systemctl start mysql
+          printf '[client]\nhost=127.0.0.1\nuser=root\npassword=root\nprotocol=tcp\n' > ~/.my.cnf
+          mysql -e 'CREATE DATABASE mediflow CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
+
+      - name: Write .env
+        run: |
+          sed -e 's/^DB_PASSWORD=.*/DB_PASSWORD=root/' \
+              -e 's/^APP_URL=.*/APP_URL=http:\/\/127.0.0.1:8000/' .env.example > .env
+          printf 'AI_PROVIDER=stub\nPAYMENT_GATEWAY=stub\n' >> .env
+
+      - name: Schema and demo data
+        run: |
+          php database/migrate.php
+          for s in seed seed_clinical seed_billing seed_insurance seed_demo seed_today; do
+            echo "== $s"; php database/$s.php
+          done
+
+      - name: Start API
+        run: |
+          php -S 127.0.0.1:8000 -t public > api.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:8000/api/v1/health > /dev/null && break
+            sleep 0.5
+          done
+          curl -s -o /dev/null -w 'API answered %{http_code}\n' http://127.0.0.1:8000/api/v1/health
+
+      - name: Run every suite
+        env:
+          MYSQL: /usr/bin/mysql
+          GAP: '0'
+        run: |
+          export PHP="$(command -v php)"
+          bash database/run-all-tests.sh
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-logs
+          path: |
+            backend/database/last-run.log
+            backend/api.log
+            backend/storage/logs
+          if-no-files-found: ignore
