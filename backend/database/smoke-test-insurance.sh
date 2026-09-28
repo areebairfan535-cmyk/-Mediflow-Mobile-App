@@ -89,18 +89,25 @@ reset_policies
 echo
 echo "[setup] sign in"
 
+# Every account below is staff of the demo clinic, and every request names that
+# clinic. Without the header the tenant is inferred, and inference only holds
+# while an account belongs to exactly ONE organization: give any of them a
+# second membership — a leftover clinic from manual testing is enough — and
+# these requests answer 403 "You belong to several organizations", which lands
+# in the refund tests looking like a permissions bug instead of what it is.
+
 R=$(api POST /auth/login '{"email":"owner@clinic.test","password":"Password123"}')
 expect "owner login" "$(status_of "$R")" "200"
 OWNER=$(jval "$(body_of "$R")" access_token)
-OAUTH=(-H "Authorization: Bearer $OWNER")
+OAUTH=(-H "Authorization: Bearer $OWNER" -H "X-Organization-Id: 1")
 
 R=$(api POST /auth/login '{"email":"billing@clinic.test","password":"Password123"}')
 BILLING=$(jval "$(body_of "$R")" access_token)
-BAUTH=(-H "Authorization: Bearer $BILLING")
+BAUTH=(-H "Authorization: Bearer $BILLING" -H "X-Organization-Id: 1")
 
 R=$(api POST /auth/login '{"email":"reception@clinic.test","password":"Password123"}')
 RECEPTION=$(jval "$(body_of "$R")" access_token)
-RAUTH=(-H "Authorization: Bearer $RECEPTION")
+RAUTH=(-H "Authorization: Bearer $RECEPTION" -H "X-Organization-Id: 1")
 
 # Patients seeded with deliberately different policies.
 P_COPAY=$(sql "SELECT p.id FROM patients p JOIN insurance_policies i ON i.patient_id=p.id JOIN insurance_providers v ON v.id=i.insurance_provider_id WHERE v.code='SLH' LIMIT 1")
