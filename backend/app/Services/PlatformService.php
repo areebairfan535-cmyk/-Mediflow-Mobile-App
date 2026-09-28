@@ -6,6 +6,7 @@ namespace App\Services;
 use App\Core\ConflictException;
 use App\Core\NotFoundException;
 use App\Core\Service;
+use App\Repositories\AppointmentRepository;
 use App\Repositories\CountryRepository;
 use App\Repositories\PlanRepository;
 use App\Repositories\PlatformRepository;
@@ -76,6 +77,38 @@ final class PlatformService extends Service
     public function auditLogs(array $filters, int $page, int $perPage): array
     {
         return $this->platform->auditLogs($filters, $page, $perPage);
+    }
+
+    /**
+     * @param array{status?:string,organization_id?:int,search?:string} $filters
+     * @return array{data: list<array<string,mixed>>, total: int}
+     */
+    public function appointments(array $filters, int $page, int $perPage): array
+    {
+        return $this->platform->appointments($filters, $page, $perPage);
+    }
+
+    /**
+     * Confirm, hold or cancel an appointment on a clinic's behalf.
+     *
+     * The write goes through that clinic's own AppointmentService, bound to
+     * its organization, so every rule it enforces — the status transitions,
+     * the hold reason, who gets told — applies exactly as if the front desk
+     * had clicked. The only difference is the actor: the platform admin is
+     * nobody's doctor and nobody's owner, so both of them hear about it.
+     *
+     * @return array{before: array<string,mixed>, after: array<string,mixed>}
+     */
+    public function changeAppointmentStatus(int $id, string $status, ?string $reason): array
+    {
+        $appointment = (new AppointmentRepository())->withoutTenantScope()->find($id);
+        if ($appointment === null) {
+            throw new NotFoundException('Appointment not found');
+        }
+
+        $clinic = new AppointmentService((int) $appointment['organization_id'], $this->actorId);
+
+        return $clinic->changeStatus($id, $status, $reason);
     }
 
     // ---------------------------------------------------------------

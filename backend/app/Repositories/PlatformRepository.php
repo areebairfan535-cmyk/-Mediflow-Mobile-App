@@ -227,4 +227,55 @@ final class PlatformRepository extends Repository
 
         return ['data' => $rows, 'total' => $total];
     }
+
+    /**
+     * Appointments across every clinic, newest request first. The panel's
+     * default is the ones still waiting on a yes — status 'booked' — so the
+     * platform admin can confirm on a clinic's behalf when nobody there has.
+     *
+     * @param array{status?:string,organization_id?:int,search?:string} $filters
+     * @return array{data: list<array<string,mixed>>, total: int}
+     */
+    public function appointments(array $filters, int $page, int $perPage): array
+    {
+        $where    = ['1 = 1'];
+        $bindings = [];
+
+        if (!empty($filters['status'])) {
+            $where[]            = 'a.status = :status';
+            $bindings['status'] = $filters['status'];
+        }
+        if (!empty($filters['organization_id'])) {
+            $where[]         = 'a.organization_id = :org';
+            $bindings['org'] = (int) $filters['organization_id'];
+        }
+        if (!empty($filters['search'])) {
+            $where[] = '(p.first_name LIKE :q OR p.last_name LIKE :q OR p.mrn LIKE :q
+                         OR u.name LIKE :q OR o.name LIKE :q)';
+            $bindings['q'] = '%' . $filters['search'] . '%';
+        }
+
+        $from = 'FROM appointments a
+                 JOIN organizations o ON o.id = a.organization_id
+                 JOIN patients      p ON p.id = a.patient_id
+                 JOIN doctors       d ON d.id = a.doctor_id
+                 JOIN users         u ON u.id = d.user_id
+                WHERE ' . implode(' AND ', $where);
+
+        $total = (int) ($this->query("SELECT COUNT(*) AS c $from", $bindings)[0]['c'] ?? 0);
+
+        $rows = $this->query(
+            "SELECT a.id, a.organization_id, a.status, a.type, a.reason, a.scheduled_at,
+                    a.duration_minutes, a.hold_reason, a.created_at,
+                    o.name AS organization_name,
+                    CONCAT(p.first_name, ' ', p.last_name) AS patient_name, p.mrn,
+                    u.name AS doctor_name, d.specialty
+               $from
+              ORDER BY a.created_at DESC, a.id DESC
+              LIMIT " . (int) $perPage . ' OFFSET ' . (int) (($page - 1) * $perPage),
+            $bindings,
+        );
+
+        return ['data' => $rows, 'total' => $total];
+    }
 }

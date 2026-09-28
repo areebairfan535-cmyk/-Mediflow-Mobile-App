@@ -189,6 +189,56 @@ final class PlatformController extends Controller
     }
 
     // ===============================================================
+    // Appointments across clinics (§21)
+    // ===============================================================
+
+    /**
+     * Every clinic's bookings, defaulting to the ones nobody has answered yet.
+     * The clinic-side list is at /appointments and sees one tenant; this one
+     * is for the platform admin stepping in on a clinic's behalf.
+     */
+    public function appointments(Request $request): never
+    {
+        $filters = $this->validateQuery($request, [
+            'status'          => 'nullable|in:booked,confirmed,on_hold,arrived,in_consultation,completed,cancelled,no_show',
+            'organization_id' => 'nullable|integer',
+            'search'          => 'nullable|string|max:120',
+        ]);
+
+        [$page, $perPage] = $this->pagination($request);
+
+        $result = PlatformService::for($request)->appointments($filters, $page, $perPage);
+
+        $this->ok($result['data'], $this->meta($page, $perPage, $result['total']));
+    }
+
+    public function setAppointmentStatus(Request $request): never
+    {
+        $data = $this->validate($request, [
+            'status' => 'required|in:confirmed,on_hold,cancelled',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $id     = $request->intParam('id');
+        $result = PlatformService::for($request)
+            ->changeAppointmentStatus($id, (string) $data['status'], $data['reason'] ?? null);
+
+        // Filed under the clinic it belongs to, so its own audit trail shows
+        // that the platform, not its staff, answered this booking.
+        (new AuditService())->logForOrganization(
+            $request,
+            (int) $result['after']['organization_id'],
+            'update',
+            'appointment',
+            $id,
+            ['status' => $result['before']['status']],
+            ['status' => $result['after']['status']],
+        );
+
+        $this->ok(['appointment' => $result['after']]);
+    }
+
+    // ===============================================================
     // Countries, currencies and tax (§21, §23)
     // ===============================================================
 

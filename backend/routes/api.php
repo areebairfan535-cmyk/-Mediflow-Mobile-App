@@ -532,6 +532,12 @@ $router->group('/api/v1', [], function ($router): void {
         // cannot show platform-level rows to anyone; this can.
         $router->get('/audit-logs', [PlatformController::class, 'auditLogs']);
 
+        // Bookings across every clinic, and the platform's yes/no on one of
+        // them. The write runs through that clinic's own AppointmentService,
+        // so the same transitions and notifications apply.
+        $router->get('/appointments',             [PlatformController::class, 'appointments']);
+        $router->put('/appointments/{id}/status', [PlatformController::class, 'setAppointmentStatus']);
+
         // Countries, currencies and tax (§21, §23). Nothing about a market is
         // hard-coded; the row IS the configuration.
         $router->get('/countries',      [PlatformController::class, 'countries']);
