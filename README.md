@@ -79,10 +79,12 @@ running end to end — book, consult, diagnose, prescribe, invoice, take
 payment, notify the patient. The patient books, reschedules, reads their
 record and opens their reports from the phone.
 
-**628/628 end-to-end assertions pass** (78 foundation + 69 clinical +
-111 billing + 95 patient + 89 insurance + 61 AI + 61 subscription +
-64 platform). Each suite resets what it depends on and creates what it needs,
-so they can be re-run in any order without re-seeding.
+**644/644 end-to-end assertions pass** (78 foundation + 69 clinical +
+111 billing + 94 patient + 89 insurance + 61 AI + 63 subscription +
+79 platform). Each suite resets what it depends on and creates what it needs,
+so they can be re-run in any order without re-seeding. Those eight are the
+smoke suites; `bash database/run-all-tests.sh` runs all twenty-six and
+reports **1,303 passed, 0 failed**.
 
 | App | URL | For |
 |---|---|---|
@@ -162,26 +164,26 @@ C:/xampp/php/php.exe -S 127.0.0.1:8000 -t public
 bash database/smoke-test.sh              # 78 assertions
 bash database/smoke-test-clinical.sh     # 69 assertions
 bash database/smoke-test-billing.sh      # 111 assertions
-bash database/smoke-test-patient.sh      # 95 assertions
+bash database/smoke-test-patient.sh      # 94 assertions
 bash database/smoke-test-insurance.sh    # 89 assertions
 bash database/smoke-test-ai.sh           # 61 assertions
-bash database/smoke-test-subscription.sh # 61 assertions
-bash database/smoke-test-platform.sh     # 64 assertions
+bash database/smoke-test-subscription.sh # 63 assertions
+bash database/smoke-test-platform.sh     # 79 assertions
 
 # The §27 workflow in one run, from the doctor's sign-in to the patient's
 # phone. Not counted above — it re-walks ground the suites already cover, to
 # prove the chain between them holds.
-bash database/test-mvp.sh                # 27 assertions
+bash database/test-mvp.sh                # 44 assertions
 
 # The shape of the code and the tables rather than the behaviour on top of
 # them: every table §20 names, tenant scoping, §5’s rule that a medical record
 # carries the clinic, the patient, an author and timestamps, and §24’s layering
 # — no SQL outside the repositories, and every exemption earning itself.
-bash database/test-schema.sh             # 91 assertions
+bash database/test-schema.sh             # 97 assertions
 
 # §17 on the wire and in the trail: headers, hashing, rate limiting,
 # injection, unreachable upload paths, and a backup that restores.
-bash database/test-security.sh           # 34 assertions
+bash database/test-security.sh           # 38 assertions
 
 # §10, §11 and §16: tenant isolation, token refresh rotation, RBAC answering
 # the same endpoint three ways, and the HIPAA/GDPR rights — including whether
@@ -229,7 +231,7 @@ Password for all: `Password123`
 php database/migrate.php --status   # what has run
 php database/migrate.php --fresh    # drop everything and rebuild
 php database/seed.php               # idempotent, safe to re-run
-bash database/smoke-test.sh         # 53 end-to-end assertions
+bash database/smoke-test.sh         # 78 end-to-end assertions
 
 # All eight suites, one line:
 for t in "" -clinical -billing -patient -insurance -ai -subscription -platform; do
@@ -727,6 +729,11 @@ PUT    /platform/settings                     including which payment gateway is
                                               live. Secrets are not here.
 
 GET    /platform/audit-logs                   the cross-tenant trail (§16)
+
+GET    /platform/appointments                 every clinic's bookings; ?status=booked
+                                              is the ones nobody has answered
+PUT    /platform/appointments/{id}/status     confirm, hold or cancel on the clinic's
+                                              behalf — same rules, everyone told
 ```
 
 Two things worth knowing about this surface:
@@ -851,7 +858,7 @@ nobody runs on a timer is not a backup policy.
 
 ## Test suite
 
-### Foundation — `bash database/smoke-test.sh` (51 assertions)
+### Foundation — `bash database/smoke-test.sh` (78 assertions)
 
 | Section | Covers |
 |---|---|
@@ -866,7 +873,7 @@ nobody runs on a timer is not a backup policy.
 | 9 | Login and failed-login recorded; no password ever in the trail |
 | 10 | Validation shape, weak password, unknown country, SQL injection attempt |
 
-### Clinical — `bash database/smoke-test-clinical.sh` (55 assertions)
+### Clinical — `bash database/smoke-test-clinical.sh` (69 assertions)
 
 | Section | Covers |
 |---|---|
