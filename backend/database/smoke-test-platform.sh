@@ -375,6 +375,91 @@ case "$(body_of "$R")" in
 esac
 
 # ---------------------------------------------------------------
+echo
+echo "[6] Bookings across every clinic (sec 21)"
+
+# Answering a booking is the one cross-tenant WRITE in the API, so what is
+# asserted below is not the 200 — it is what the clinic hears afterwards. The
+# write goes through that clinic's own AppointmentService, or a patient is left
+# waiting on a yes nobody told them about.
+
+R=$(api GET '/platform/appointments?status=booked&per_page=5' '' "${AAUTH[@]}")
+expect "admin lists bookings across clinics" "$(status_of "$R")" "200"
+case "$(body_of "$R")" in
+  *'"organization_name"'*) pass "every row names the clinic it belongs to" ;;
+  *)                       fail "the cross-tenant list does not say which clinic a booking is in" ;;
+esac
+
+R=$(api GET /platform/appointments '' "${OAUTH[@]}")
+expect "clinic owner refused the cross-tenant list" "$(status_of "$R")" "403"
+
+APPT=$(sql "SELECT id FROM appointments WHERE status='booked' ORDER BY id DESC LIMIT 1" | tr -d '\r' | head -1)
+
+if [ -z "${APPT:-}" ]; then
+  fail "no booking left in 'booked' to answer" "demo data has drifted; php database/seed_today.php"
+else
+  APPT_ORG=$(sql "SELECT organization_id FROM appointments WHERE id=$APPT" | tr -d '\r' | head -1)
+
+  # What to put back afterwards. A suite that confirms a booking and walks away
+  # has spent one of the rows the next run needs.
+  WAS_BY=$(sql "SELECT IFNULL(updated_by,'NULL') FROM appointments WHERE id=$APPT" | tr -d '\r' | head -1)
+  WAS_AT=$(sql "SELECT updated_at FROM appointments WHERE id=$APPT" | tr -d '\r' | head -1)
+  MAX_N=$(sql "SELECT IFNULL(MAX(id),0) FROM notifications" | tr -d '\r' | head -1)
+  MAX_A=$(sql "SELECT IFNULL(MAX(id),0) FROM audit_logs"     | tr -d '\r' | head -1)
+
+  R=$(api PUT "/platform/appointments/$APPT/status" '{"status":"completed"}' "${AAUTH[@]}")
+  expect "a status the platform may not set" "$(status_of "$R")" "422"
+
+  R=$(api PUT "/platform/appointments/$APPT/status" '{"status":"on_hold"}' "${AAUTH[@]}")
+  expect "a hold with no reason for the patient" "$(status_of "$R")" "422"
+
+  R=$(api PUT "/platform/appointments/99999999/status" '{"status":"confirmed"}' "${AAUTH[@]}")
+  expect "a booking that does not exist" "$(status_of "$R")" "404"
+
+  R=$(api PUT "/platform/appointments/$APPT/status" '{"status":"confirmed"}' "${OAUTH[@]}")
+  expect "clinic owner cannot answer through the platform route" "$(status_of "$R")" "403"
+
+  R=$(api PUT "/platform/appointments/$APPT/status" '{"status":"confirmed"}' "${AAUTH[@]}")
+  expect "the platform confirms a clinic's booking" "$(status_of "$R")" "200"
+  case "$(body_of "$R")" in
+    *'"status":"confirmed"'*) pass "and the booking comes back confirmed" ;;
+    *)                        fail "the answer did not change the booking" ;;
+  esac
+
+  # The point of routing the write through the clinic: the same people are told
+  # as when the front desk clicks.
+  TOLD=$(sql "SELECT COUNT(*) FROM notifications
+               WHERE id>$MAX_N AND subject_type='appointment' AND subject_id=$APPT
+                 AND event='appointment.confirmed'" | tr -d '\r' | head -1)
+  [ "${TOLD:-0}" -gt 0 ] && pass "the patient is told the booking is a promise now" \
+                         || fail "the patient was never told the booking was confirmed"
+
+  TOLD=$(sql "SELECT COUNT(*) FROM notifications
+               WHERE id>$MAX_N AND subject_type='appointment' AND subject_id=$APPT
+                 AND event='appointment.confirmed.owner'" | tr -d '\r' | head -1)
+  [ "${TOLD:-0}" -gt 0 ] && pass "and the clinic's owner hears that it was answered" \
+                         || fail "the clinic was not told the platform answered for it"
+
+  # Filed under the clinic, not the platform: a trail the clinic itself reads is
+  # the only place "someone else answered my booking" can be seen.
+  FILED=$(sql "SELECT COUNT(*) FROM audit_logs
+                WHERE id>$MAX_A AND resource_type='appointment' AND resource_id=$APPT
+                  AND organization_id=$APPT_ORG" | tr -d '\r' | head -1)
+  [ "${FILED:-0}" -gt 0 ] && pass "the answer is filed in the clinic's own trail" \
+                          || fail "the platform answered a booking with no clinic-side record"
+
+  # Put the booking back on the pile. There is no transition from confirmed back
+  # to booked by design, so this goes through SQL, and the rows the answer wrote
+  # go with it.
+  sql "UPDATE appointments SET status='booked', updated_by=$WAS_BY, updated_at='$WAS_AT' WHERE id=$APPT" >/dev/null 2>&1
+  sql "DELETE FROM notifications WHERE id>$MAX_N" >/dev/null 2>&1
+  sql "DELETE FROM audit_logs    WHERE id>$MAX_A" >/dev/null 2>&1
+  BACK=$(sql "SELECT status FROM appointments WHERE id=$APPT" | tr -d '\r' | head -1)
+  [ "${BACK:-x}" = "booked" ] && pass "and the booking is left waiting as it was found" \
+                              || fail "the booking was left $BACK"
+fi
+
+# ---------------------------------------------------------------
 # Put the shop back as it was found: the plan this run invented is retired so
 # no clinic is ever offered it, and the market it opened is closed again.
 if [ -n "${NEW_PLAN:-}" ]; then
